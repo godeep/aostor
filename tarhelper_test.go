@@ -8,6 +8,8 @@ import (
 	"io/ioutil"
 	"os"
 	"compress/gzip"
+	//"net/http"
+	"log"
 	)
 
 func TestCompress(c *testing.T) {
@@ -21,12 +23,14 @@ func TestCompress(c *testing.T) {
 	if s, err = ioutil.ReadAll(sf); err != nil {
 		c.Fatalf("reading %s: %s", sf, err)
 	}
+	c.Logf("read %d.", len(s))
 	if _, err := sf.Seek(0, 0); err != nil {
 		c.Fatalf("seeking %s: %s", sf, err)
 	}
 	if cfn, err = Compress(sf, "gz"); err != nil {
 		c.Fatalf("compressing %s: %s", sf, err)
 	}
+	defer os.Remove(cfn)
 	c.Log(fmt.Sprintf("cfn=%s", cfn))
 	var df io.Reader
 	if df, err = os.Open(cfn); err != nil {
@@ -47,5 +51,25 @@ func TestCompress(c *testing.T) {
 		if s[i] != d[i] {
 			c.Logf("%d: s=%s d=%s", i, s[i], d[i])
 		}
+	}
+}
+
+func TestAppendFile(c *testing.T) {
+	tarfn := os.TempDir() + "/tarhelper_test.tar"
+	fi, err := os.Stat("tarhelper_test.go")
+	oldsize := fi.Size()
+	info := Info{"X-AODB-Id": "1234"}
+	pos, err := AppendFile(tarfn, info, fi.Name(), "gzip")
+	if err != nil {
+		c.Fatalf("appending to %s: %s", tarfn, err)
+	}
+	log.Printf("pos=%d", pos)
+	if fi, err = os.Stat(tarfn); err != nil {
+		c.Fatalf("not exists? %s", err)
+	}
+	newsize := fi.Size()
+	log.Printf("old=%d new=%d", oldsize, newsize)
+	if newsize == 0 || oldsize >= newsize {
+		//c.Fatal()
 	}
 }
