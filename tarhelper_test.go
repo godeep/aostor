@@ -2,20 +2,23 @@
 package aodb
 
 import (
+	"compress/gzip"
 	"fmt"
-	"testing"
 	"io"
 	"io/ioutil"
 	"os"
-	"compress/gzip"
+	"testing"
 	//"net/http"
 	"log"
-	)
+	"crypto/rand"
+)
 
 func TestCompress(c *testing.T) {
-	var (sf *os.File
+	var (
+		sf  *os.File
 		cfn string
-		err error)
+		err error
+	)
 	if sf, err = os.Open("tarhelper_test.go"); err != nil {
 		c.Fatalf("opening file: %s", err)
 	}
@@ -58,7 +61,14 @@ func TestAppendFile(c *testing.T) {
 	tarfn := os.TempDir() + "/tarhelper_test.tar"
 	fi, err := os.Stat("tarhelper_test.go")
 	oldsize := fi.Size()
-	info := Info{"X-AODB-Id": "1234"}
+	info := Info{"X-AODB-Id": fmt.Sprintf("1234-%d", os.Getpid())}
+	i := os.Getpid() % 10 + 1
+	buf := make([]byte, i)
+	var n int
+	if n, err = rand.Read(buf); err != nil {
+		log.Printf("cannot read random: %s", err)
+	}
+	info.Add("X-Gibberish", fmt.Sprintf("%x", buf[:n]))
 	pos, err := AppendFile(tarfn, info, fi.Name(), "gzip")
 	if err != nil {
 		c.Fatalf("appending to %s: %s", tarfn, err)

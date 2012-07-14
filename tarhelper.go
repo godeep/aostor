@@ -4,18 +4,19 @@ package aodb
 import (
 	"archive/tar"
 	"compress/bzip2"
-	"compress/gzip"
 	"compress/flate"
+	"compress/gzip"
 	"errors"
 	//"bytes"
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"os"
+	"os/user"
 	"strings"
 	"time"
-	"log"
 )
 
 var (
@@ -30,6 +31,7 @@ const (
 	SuffInfo = "!"
 	SuffLink = "@"
 	SuffData = "#"
+	BS = 512
 )
 
 type SymlinkError struct {
@@ -52,9 +54,9 @@ func readItem(tarfn string, pos int64) (ret io.Reader, err error) {
 				err = &SymlinkError{hdr.Linkname}
 			case hdr.Typeflag != tar.TypeReg && hdr.Typeflag != tar.TypeRegA:
 				err = NotRegularFile
-			case strings.HasSuffix(hdr.Name, SuffData + "bz2"):
+			case strings.HasSuffix(hdr.Name, SuffData+"bz2"):
 				ret = bzip2.NewReader(io.LimitReader(tr, hdr.Size))
-			case strings.HasSuffix(hdr.Name, SuffData + "gz"):
+			case strings.HasSuffix(hdr.Name, SuffData+"gz"):
 				ret, err = gzip.NewReader(io.LimitReader(tr, hdr.Size))
 			case true:
 				ret = tr
@@ -80,8 +82,8 @@ func writeItem(tarfn string, fn string) (pos uint64, err error) {
 			f  ReadWriteSeekCloser
 		)
 		if tw, f, pos, err = openForAppend(tarfn); err == nil {
-			defer tw.Close()
 			defer f.Close()
+			defer tw.Close() //LIFO
 			if err := tw.WriteHeader(hdr); err == nil {
 				if zw, err := gzip.NewWriterLevel(tw, flate.BestCompression); err == nil {
 					defer zw.Close()
@@ -98,7 +100,64 @@ type ReadWriteSeekCloser interface {
 	io.Closer
 }
 
-func openForAppend(tarfn string) (tw *tar.Writer, fobj ReadWriteSeekCloser, pos uint64, err error) {
+/*
+    def _init_find_end(self, end_offset, name):
+        '''Move to the end of the archive, before the first empty block.'''
+        if not end_offset:
+            end_offset = self.END_OFFSET_CACHE.get(name, 0)
+
+        self.firstmember = None
+        perf_mark()
+        if end_offset > self.offset:
+            self.fileobj.seek(0, 2)
+            p = self.fileobj.tell()
+            self.offset = min(p - tarfile.BLOCKSIZE, end_offset)
+            self.fileobj.seek(self.offset)
+            perf_print('%s end_offset > self.offset', name)
+
+        if DEBUG_MEM:
+            LOG.debug('before while: next() mem=%dKb', usedmem())
+        while True:
+            if self.next() is None:
+                if self.offset > 0:
+                    self.fileobj.seek(-tarfile.BLOCKSIZE, 1)
+                break
+        perf_print('find_end %s', name)
+        self.END_OFFSET_CACHE[name] = self.offset
+        if DEBUG_MEM:
+            LOG.debug('after while: next() mem=%dKb', usedmem())
+*/
+//Move to the end of the archive, before the first empty block.
+func FindTarEnd(r io.ReadSeeker, last_known uint64) (pos uint64, err error) {
+	var p int64
+	if p, err = r.Seek(0, 1); err != nil {
+		logger.Panicf("cannot seek %s: %s", r, err)
+	}
+	logger.Printf("p=%d last_known=%d", p, last_known)
+	if last_known > uint64(p) {
+		p, err = r.Seek(-BS, 2)
+		if uint64(p) > last_known {
+			if p, err = r.Seek(int64(last_known), 0); err != nil {
+				logger.Panicf("cannot seek to %d", int64(last_known))
+			}
+		}
+		logger.Printf("p=%d", p)
+	}
+	tr := tar.NewReader(r)
+	for ;; {
+		if _, err := tr.Next(); err == io.EOF {
+			p, err = r.Seek(-2 * BS, 1)
+			break
+		} else {
+			// p, err = r.Seek(0, 1); logger.Printf("pos=%d", p)
+		}
+	}
+	logger.Printf("end of %s: %d", r, p)
+	return uint64(p), err
+}
+
+func openForAppend(tarfn string) (
+		tw *tar.Writer, fobj ReadWriteSeekCloser, pos uint64, err error) {
 	fh, err := os.OpenFile(tarfn, os.O_RDWR|os.O_CREATE, 0640)
 	if err != nil {
 		logger.Printf("cannot open %s: %s", tarfn, err)
@@ -109,42 +168,20 @@ func openForAppend(tarfn string) (tw *tar.Writer, fobj ReadWriteSeekCloser, pos 
 		logger.Printf("cannot stat %s: %s", fh, err)
 		return
 	}
-	const DBLOCK = 1024
-	if fi.Size() >= DBLOCK {
-		if _, err = fh.Seek(-DBLOCK, 2); err != nil {
-			logger.Printf("cannot seek %s: %s", fh, err)
-			return
-		}
-		var n int
-		buf := make([]byte, DBLOCK)
-		if n, err = io.ReadAtLeast(fh, buf, DBLOCK); err != nil {
-			logger.Printf("cannot read %d from %s into %+v: %s",
-				DBLOCK, fh, buf, err)
-			return
-		}
-		if n >= DBLOCK {
-			i := 0
-			for i := 0; i < n && buf[i] == 0; i++ {
-			}
-			if i < DBLOCK {
-				//err
-			}
-		}
-		if p, err := fh.Seek(-DBLOCK, 2); err == nil {
-			pos = uint64(p)
+	logger.Printf("%s.Size=%d", tarfn, fi.Size())
+	var p int64
+	if fi.Size() >= 2 * BS {
+		if pos, err = FindTarEnd(fh, 0); err == nil {
 			logger.Printf("end of %s: %d", tarfn, pos)
 		} else {
 			logger.Printf("error %s: %s", tarfn, err)
 		}
 	} else {
-		if _, err := fh.Seek(0, 0); err != nil {
+		if p, err = fh.Seek(0, 0); err != nil {
 			logger.Printf("error: %s: %s", tarfn, err)
 		}
+		pos = uint64(p)
 	}
-	if _, err = fh.Write([]byte{0}); err != nil {
-		logger.Panicf("cannot write 1 byte into %+v: %s", fh, err)
-	}
-	fh.Seek(-1, 1)
 	tw = tar.NewWriter(fh)
 	if err == nil && tw == nil {
 		logger.Panicf("couldn't open %+v!", tarfn)
@@ -156,6 +193,7 @@ func openForAppend(tarfn string) (tw *tar.Writer, fobj ReadWriteSeekCloser, pos 
 }
 
 type Info map[string]string
+
 func (info Info) Get(key string) string {
 	ret, ok := info[http.CanonicalHeaderKey(key)]
 	if !ok {
@@ -199,40 +237,82 @@ func fileTarHeader(fn string) (hdr *tar.Header, err error) {
 		m := fi.Mode()
 		var (
 			ln string
-		 	tm byte
-		 	)
+			tm byte
+		)
 		tm = tar.TypeReg
 		switch {
-		case m & os.ModeSymlink != 0:
+		case m&os.ModeSymlink != 0:
 			tm = tar.TypeSymlink
 			if lfi, err := os.Lstat(fn); err == nil {
 				ln = lfi.Name()
 			}
-		case m & os.ModeDevice != 0 && m & os.ModeCharDevice != 0:
+		case m&os.ModeDevice != 0 && m&os.ModeCharDevice != 0:
 			tm = tar.TypeChar
-		case m & os.ModeDevice != 0:
+		case m&os.ModeDevice != 0:
 			tm = tar.TypeBlock
-		case m & os.ModeNamedPipe != 0 || m & os.ModeSocket != 0:
+		case m&os.ModeNamedPipe != 0 || m&os.ModeSocket != 0:
 			tm = tar.TypeFifo
 		}
 		tim := fi.ModTime()
 		hdr = &tar.Header{Name: fi.Name(), Mode: int64(m.Perm()),
-			Uid: os.Getuid(), Gid: os.Getgid(),
 			Size: fi.Size(), ModTime: tim,
-			Typeflag: tm, Linkname: ln, AccessTime: tim, ChangeTime: tim}
+			Typeflag: tm, Linkname: ln}
+		FillHeader(hdr)
 	}
 	return
 }
 
-func writeTar(tw *tar.Writer, hdr *tar.Header, r io.Reader) (err error) {
-	if err = tw.WriteHeader(hdr); err == nil {
-		if _, err = io.Copy(tw, r); err == nil {
-			tw.Flush()
+func FillHeader(hdr *tar.Header) {
+	var cuname string
+	cuid := os.Getuid()
+	if curr, err := user.LookupId(fmt.Sprintf("%d", cuid)); err == nil {
+		cuname = curr.Username
+	}
+	if hdr.Uid == 0 {
+		if hdr.Uname == "" {
+			hdr.Uid = cuid
+			hdr.Uname = cuname
+		} else {
+			if usr, err := user.Lookup(hdr.Uname); err == nil {
+				if i, err := fmt.Sscanf("%d", usr.Uid); err == nil {
+					hdr.Uid = i
+					hdr.Uname = usr.Username
+				}
+			}
 		}
 	}
-	if err != nil {
+	if hdr.Gid == 0 {
+		if hdr.Gname == "" {
+			if hdr.Uid != 0 {
+				if usr, err := user.LookupId(fmt.Sprintf("%d", hdr.Uid)); err == nil {
+					if i, err := fmt.Sscanf("%d", usr.Gid); err == nil {
+						hdr.Gid = i
+					}
+				}
+			}
+		}
+	}
+	if hdr.ModTime.IsZero() {
+		hdr.ModTime = time.Now()
+	}
+	if hdr.AccessTime.IsZero() {
+		hdr.AccessTime = hdr.ModTime
+	}
+	if hdr.ChangeTime.IsZero() {
+		hdr.ChangeTime = hdr.ModTime
+	}
+}
+
+func writeTar(tw *tar.Writer, hdr *tar.Header, r io.Reader) (err error) {
+	if err = tw.WriteHeader(hdr); err != nil {
 		logger.Panicf("error writing tar header %+v into %+v: %s", hdr, tw, err)
 	}
+	if n, err := io.Copy(tw, r); err != nil {
+		logger.Panicf("error copying tar data %+v into %+v: %s", r, tw, err)
+	} else {
+		logger.Printf("written %+v, then %d bytes into %+v", hdr, n, tw)
+	}
+	tw.Flush()
 	return
 }
 
@@ -241,15 +321,14 @@ func writeInfo(tw *tar.Writer, info Info) (err error) {
 	txt, length := info.NewReader()
 	//logger.Printf("txt=%s", txt)
 	hdr := &tar.Header{Name: info.Get("X-AODB-Id") + SuffInfo, Mode: 0440,
-		Size:    int64(length), ModTime: time.Now(), Typeflag: tar.TypeReg,
-		Uid: os.Getuid(), Gid: os.Getgid()}
-	logger.Printf("writeInfo(%+v into %+v)", hdr, tw);
-	err = writeTar(tw, hdr, txt)
-	return
+		Size: int64(length), Typeflag: tar.TypeReg}
+	FillHeader(hdr)
+	logger.Printf("writeInfo(%+v into %+v)", hdr, tw)
+	return writeTar(tw, hdr, txt)
 }
 
 func writeCompressed(tw *tar.Writer, fn string, info Info,
-		compressMethod string) (err error) {
+	compressMethod string) (err error) {
 	if sfh, err := os.Open(fn); err == nil {
 		defer sfh.Close()
 		if cfn, err := Compress(sfh, compressMethod); err == nil {
@@ -260,8 +339,10 @@ func writeCompressed(tw *tar.Writer, fn string, info Info,
 					defer cfh.Close()
 					var end = compressMethod
 					switch end {
-					case "gzip": end = "gz"
-					case "bzip2": end = "bz2"
+					case "gzip":
+						end = "gz"
+					case "bzip2":
+						end = "bz2"
 					}
 					if hdr, err := fileTarHeader(fn); err == nil {
 						hdr.Name = info.Get("X-AODB-Id") + SuffData + end
@@ -286,21 +367,29 @@ func AppendFile(tarfn string, info Info, fn string, compressMethod string) (pos 
 		logger.Printf("openForAppend(%s): %s", tarfn, err)
 		return
 	}
-	defer tw.Flush()
-	defer tw.Close()
 	defer fh.Close()
+	defer tw.Close()
+	defer tw.Flush()
 	if fi, err := os.Stat(fn); err == nil {
 		info.Add("X-AODB-Original-Size", fmt.Sprintf("%d", fi.Size()))
 		info.Add("X-AODB-Original-Name", fn)
 
+		//pos, _ := fh.Seek(0, 1); logger.Printf("B %+v pos: %d", fh, pos)
 		if err = writeInfo(tw, info); err == nil {
+			// pos, _ = fh.Seek(0, 1); logger.Printf("C %+v pos: %d", fh, pos)
 			err = writeCompressed(tw, fn, info, compressMethod)
+			// pos, _ = fh.Seek(0, 1); logger.Printf("D %+v pos: %d", fh, pos)
 		}
 	}
 	if err != nil {
 		logger.Printf("AppendFile: %s", err)
+	} else {
+		// pos, _ := fh.Seek(0, 1); logger.Printf("E %+v pos: %d", fh, pos)
+		// tw.Flush()
+		// pos, _ = fh.Seek(0, 1); logger.Printf("F %+v pos: %d", fh, pos)
+		// tw.Close()
+		// pos, _ = fh.Seek(0, 1); logger.Printf("G %+v pos: %d", fh, pos)
 	}
-
 	return
 }
 
@@ -308,8 +397,8 @@ func AppendFile(tarfn string, info Info, fn string, compressMethod string) (pos 
 func AppendLink(tarfn string, info Info, src string, dst string) (err error) {
 	//var (twp *tar.Writer; fh ReadWriteSeekCloser; pos uint64)
 	if tw, fh, _, err := openForAppend(tarfn); err == nil {
-		defer tw.Close()
 		defer fh.Close()
+		defer tw.Close()
 
 		if err := writeInfo(tw, info); err == nil {
 			hdr := new(tar.Header)
@@ -334,7 +423,7 @@ func Compress(f *os.File, compressMethod string) (tempfn string, err error) {
 			//logger.Printf("gw=%v", gw)
 			if _, err := io.Copy(gw, f); err != nil {
 				//logger.Printf("copied %d bytes from %v to %v", n, f, gw)
-			//} else {
+				//} else {
 				logger.Printf("copy from %v to %v error: %s", f, gw, err)
 			}
 		}
