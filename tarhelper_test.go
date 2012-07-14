@@ -9,8 +9,8 @@ import (
 	"os"
 	"testing"
 	//"net/http"
-	"log"
 	"crypto/rand"
+	"log"
 )
 
 func TestCompress(c *testing.T) {
@@ -62,7 +62,7 @@ func TestAppendFile(c *testing.T) {
 	fi, err := os.Stat("tarhelper_test.go")
 	oldsize := fi.Size()
 	info := Info{"X-AODB-Id": fmt.Sprintf("1234-%d", os.Getpid())}
-	i := os.Getpid() % 10 + 1
+	i := os.Getpid()%10 + 1
 	buf := make([]byte, i)
 	var n int
 	if n, err = rand.Read(buf); err != nil {

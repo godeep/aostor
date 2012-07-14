@@ -31,7 +31,7 @@ const (
 	SuffInfo = "!"
 	SuffLink = "@"
 	SuffData = "#"
-	BS = 512
+	BS       = 512
 )
 
 type SymlinkError struct {
@@ -101,31 +101,31 @@ type ReadWriteSeekCloser interface {
 }
 
 /*
-    def _init_find_end(self, end_offset, name):
-        '''Move to the end of the archive, before the first empty block.'''
-        if not end_offset:
-            end_offset = self.END_OFFSET_CACHE.get(name, 0)
+   def _init_find_end(self, end_offset, name):
+       '''Move to the end of the archive, before the first empty block.'''
+       if not end_offset:
+           end_offset = self.END_OFFSET_CACHE.get(name, 0)
 
-        self.firstmember = None
-        perf_mark()
-        if end_offset > self.offset:
-            self.fileobj.seek(0, 2)
-            p = self.fileobj.tell()
-            self.offset = min(p - tarfile.BLOCKSIZE, end_offset)
-            self.fileobj.seek(self.offset)
-            perf_print('%s end_offset > self.offset', name)
+       self.firstmember = None
+       perf_mark()
+       if end_offset > self.offset:
+           self.fileobj.seek(0, 2)
+           p = self.fileobj.tell()
+           self.offset = min(p - tarfile.BLOCKSIZE, end_offset)
+           self.fileobj.seek(self.offset)
+           perf_print('%s end_offset > self.offset', name)
 
-        if DEBUG_MEM:
-            LOG.debug('before while: next() mem=%dKb', usedmem())
-        while True:
-            if self.next() is None:
-                if self.offset > 0:
-                    self.fileobj.seek(-tarfile.BLOCKSIZE, 1)
-                break
-        perf_print('find_end %s', name)
-        self.END_OFFSET_CACHE[name] = self.offset
-        if DEBUG_MEM:
-            LOG.debug('after while: next() mem=%dKb', usedmem())
+       if DEBUG_MEM:
+           LOG.debug('before while: next() mem=%dKb', usedmem())
+       while True:
+           if self.next() is None:
+               if self.offset > 0:
+                   self.fileobj.seek(-tarfile.BLOCKSIZE, 1)
+               break
+       perf_print('find_end %s', name)
+       self.END_OFFSET_CACHE[name] = self.offset
+       if DEBUG_MEM:
+           LOG.debug('after while: next() mem=%dKb', usedmem())
 */
 //Move to the end of the archive, before the first empty block.
 func FindTarEnd(r io.ReadSeeker, last_known uint64) (pos uint64, err error) {
@@ -144,9 +144,9 @@ func FindTarEnd(r io.ReadSeeker, last_known uint64) (pos uint64, err error) {
 		logger.Printf("p=%d", p)
 	}
 	tr := tar.NewReader(r)
-	for ;; {
+	for {
 		if _, err := tr.Next(); err == io.EOF {
-			p, err = r.Seek(-2 * BS, 1)
+			p, err = r.Seek(-2*BS, 1)
 			break
 		} else {
 			// p, err = r.Seek(0, 1); logger.Printf("pos=%d", p)
@@ -157,7 +157,7 @@ func FindTarEnd(r io.ReadSeeker, last_known uint64) (pos uint64, err error) {
 }
 
 func openForAppend(tarfn string) (
-		tw *tar.Writer, fobj ReadWriteSeekCloser, pos uint64, err error) {
+	tw *tar.Writer, fobj ReadWriteSeekCloser, pos uint64, err error) {
 	fh, err := os.OpenFile(tarfn, os.O_RDWR|os.O_CREATE, 0640)
 	if err != nil {
 		logger.Printf("cannot open %s: %s", tarfn, err)
@@ -170,7 +170,7 @@ func openForAppend(tarfn string) (
 	}
 	logger.Printf("%s.Size=%d", tarfn, fi.Size())
 	var p int64
-	if fi.Size() >= 2 * BS {
+	if fi.Size() >= 2*BS {
 		if pos, err = FindTarEnd(fh, 0); err == nil {
 			logger.Printf("end of %s: %d", tarfn, pos)
 		} else {
