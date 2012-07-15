@@ -7,10 +7,10 @@ import (
 	"compress/flate"
 	"compress/gzip"
 	"errors"
-	//"bytes"
 	"strconv"
 	"fmt"
 	"io"
+	"bufio"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -219,6 +219,7 @@ func (info Info) Get(key string) string {
 }
 func (info Info) Add(key string, val string) {
 	k := http.CanonicalHeaderKey(key)
+	val = strings.TrimSpace(val)
 	info.m[k] = val
 	if val != "" {
 		switch k[len(InfoPref):] {
@@ -229,22 +230,34 @@ func (info Info) Add(key string, val string) {
 	}
 }
 
+func ReadInfo(r io.Reader) (info Info) {
+	rb := bufio.NewReader(r)
+	var err error
+	var key, val string
+	for err == nil {
+		if key, err = rb.ReadString(':'); err == nil {
+			if val, err = rb.ReadString('\n'); err == nil {
+				info.Add(key[:len(key)-1], val[:len(val)-1])
+			}
+		}
+	}
+	return
+}
+
 func (info Info) NewReader() (io.Reader, int) {
 	buf := make([]string, len(info.m) + 3)
+	n, i := 0, 0
 	buf[0] = fmt.Sprintf(InfoPref + "Id: %s", info.Key)
 	buf[1] = fmt.Sprintf(InfoPref + "Ipos: %d", info.Ipos)
 	buf[2] = fmt.Sprintf(InfoPref + "Dpos: %d", info.Dpos)
-	i, n := 0, 0
+	for k, v := range info.m {
+		buf[i] = fmt.Sprintf("%s: %s", http.CanonicalHeaderKey(k), v)
+	}
+	logger.Printf("info=%+v", info)
 	for _, s := range buf {
 		n += len(s) + 1
 		i++
 	}
-	for k, v := range info.m {
-		buf[i] = fmt.Sprintf("%s: %s", http.CanonicalHeaderKey(k), v)
-		n += len(buf[i]) + 1
-		i++
-	}
-	logger.Printf("info=%+v", info)
 	return strings.NewReader(strings.Join(buf, "\n")), n - 1
 }
 func (info Info) Bytes() []byte {

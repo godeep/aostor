@@ -1,18 +1,21 @@
 package main
 
 import (
-	"github.com/jbarham/go-cdb"
-	"unosoft.hu/aostor/tarhelper"
-	"flag"
-	"strings"
 	"archive/tar"
+	"flag"
 	"fmt"
-	"os"
+	"github.com/jbarham/go-cdb"
 	"io"
-	)
+	"os"
+	"log"
+	"strings"
+	"unosoft.hu/aostor/tarhelper"
+)
+
+var logger = log.New(os.Stderr, "tarhelper ", log.LstdFlags|log.Lshortfile)
 
 type fElt struct {
-	info aostor.Info
+	info   aostor.Info
 	infoFn string
 	dataFn string
 }
@@ -35,7 +38,7 @@ func CreateTar(tarfn string, dirname string) error {
 	tw := tar.NewWriter(fh)
 	defer tw.Close()
 
-	cfh, err := os.OpenFile(tarfn + ".cdb", os.O_WRONLY|os.O_CREATE, 0644)
+	cfh, err := os.OpenFile(tarfn+".cdb", os.O_WRONLY|os.O_CREATE, 0644)
 	if err != nil {
 		return err
 	}
@@ -43,15 +46,22 @@ func CreateTar(tarfn string, dirname string) error {
 	go cdb.Make(cfh, ir)
 
 	var (
-		buf map[string]fElt
-		key string
+		buf    map[string]fElt = make(map[string]fElt, 10)
+		key    string
+		info   aostor.Info
 		isInfo bool
-		)
+	)
 	for _, file := range list {
 		nm := file.Name()
 		switch {
 		case strings.HasSuffix(nm, aostor.SuffInfo):
-			key, isInfo = nm[:-1], true
+			key, isInfo = nm[:len(nm)-1], true
+			if ifh, err := os.Open(nm); err == nil {
+				info = aostor.ReadInfo(ifh)
+				ifh.Close()
+			} else {
+				logger.Printf("cannot read info from %s: %s", nm, err)
+			}
 		case strings.Contains(nm, aostor.SuffLink):
 			key, isInfo = strings.Split(nm, aostor.SuffLink)[0], false
 		case strings.Contains(nm, aostor.SuffData):
@@ -59,10 +69,12 @@ func CreateTar(tarfn string, dirname string) error {
 		default:
 			key, isInfo = "", true
 		}
+		logger.Printf("fn=%s -> key=%s ?%s", nm, key, isInfo)
 		if key != "" {
 			elt, ok := buf[key]
 			if isInfo {
 				elt.infoFn = nm
+				elt.info = info
 			} else {
 				elt.dataFn = nm
 			}
@@ -77,10 +89,12 @@ func CreateTar(tarfn string, dirname string) error {
 					fmt.Printf("cannot append %s", elt.dataFn)
 				}
 				if err = elt.cdbDump(iw); err != nil {
-					fmt.Println("cannot dump cdb info")
+					fmt.Printf("cannot dump cdb info: %s", err)
 					return err
 				}
 				delete(buf, key)
+			} else {
+				buf[key] = elt
 			}
 		}
 	}
