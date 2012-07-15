@@ -1,5 +1,5 @@
 //!/usr/bin/env go
-package aodb
+package aostor
 
 import (
 	"archive/tar"
@@ -8,6 +8,7 @@ import (
 	"compress/gzip"
 	"errors"
 	//"bytes"
+	"strconv"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -32,7 +33,10 @@ const (
 	SuffLink = "@"
 	SuffData = "#"
 	BS       = 512
+	InfoPref = "X-Aodb-"
 )
+
+var tarEndCache = map[string]uint64{}
 
 type SymlinkError struct {
 	Linkname string
@@ -171,8 +175,9 @@ func openForAppend(tarfn string) (
 	logger.Printf("%s.Size=%d", tarfn, fi.Size())
 	var p int64
 	if fi.Size() >= 2*BS {
-		if pos, err = FindTarEnd(fh, 0); err == nil {
+		if pos, err = FindTarEnd(fh, tarEndCache[tarfn]); err == nil {
 			logger.Printf("end of %s: %d", tarfn, pos)
+			tarEndCache[tarfn] = pos
 		} else {
 			logger.Printf("error %s: %s", tarfn, err)
 		}
@@ -192,30 +197,49 @@ func openForAppend(tarfn string) (
 	return
 }
 
-type Info map[string]string
+type Info struct {
+	Key string
+	Ipos, Dpos uint64
+	m map[string]string
+}
 
 func (info Info) Get(key string) string {
-	ret, ok := info[http.CanonicalHeaderKey(key)]
+	ret, ok := info.m[http.CanonicalHeaderKey(key)]
 	if !ok {
-		for k := range info {
+		for k := range info.m {
 			k2 := http.CanonicalHeaderKey(k)
 			if k != k2 {
-				info[k2] = info[k]
-				delete(info, k)
+				info.m[k2] = info.m[k]
+				delete(info.m, k)
 			}
 		}
-		ret = info[http.CanonicalHeaderKey(key)]
+		ret = info.m[http.CanonicalHeaderKey(key)]
 	}
 	return ret
 }
 func (info Info) Add(key string, val string) {
-	info[http.CanonicalHeaderKey(key)] = val
+	k := http.CanonicalHeaderKey(key)
+	info.m[k] = val
+	if val != "" {
+		switch k[len(InfoPref):] {
+		case "Id": info.Key = val
+		case "Ipos": info.Ipos, _ = strconv.ParseUint(val, 0, 64)
+		case "Dpos": info.Dpos, _ = strconv.ParseUint(val, 0, 64)
+		}
+	}
 }
 
 func (info Info) NewReader() (io.Reader, int) {
-	buf := make([]string, len(info))
+	buf := make([]string, len(info.m) + 3)
+	buf[0] = fmt.Sprintf(InfoPref + "Id: %s", info.Key)
+	buf[1] = fmt.Sprintf(InfoPref + "Ipos: %d", info.Ipos)
+	buf[2] = fmt.Sprintf(InfoPref + "Dpos: %d", info.Dpos)
 	i, n := 0, 0
-	for k, v := range info {
+	for _, s := range buf {
+		n += len(s) + 1
+		i++
+	}
+	for k, v := range info.m {
 		buf[i] = fmt.Sprintf("%s: %s", http.CanonicalHeaderKey(k), v)
 		n += len(buf[i]) + 1
 		i++
@@ -232,32 +256,44 @@ func (info Info) Bytes() []byte {
 	return ret
 }
 
-func fileTarHeader(fn string) (hdr *tar.Header, err error) {
-	if fi, err := os.Stat(fn); err == nil {
-		m := fi.Mode()
-		var (
-			ln string
-			tm byte
-		)
-		tm = tar.TypeReg
-		switch {
-		case m&os.ModeSymlink != 0:
-			tm = tar.TypeSymlink
-			if lfi, err := os.Lstat(fn); err == nil {
-				ln = lfi.Name()
-			}
-		case m&os.ModeDevice != 0 && m&os.ModeCharDevice != 0:
-			tm = tar.TypeChar
-		case m&os.ModeDevice != 0:
-			tm = tar.TypeBlock
-		case m&os.ModeNamedPipe != 0 || m&os.ModeSocket != 0:
-			tm = tar.TypeFifo
+func Finfo2Theader(fi os.FileInfo) (hdr *tar.Header, err error) {
+	m := fi.Mode()
+	var (
+		ln string
+		tm byte
+	)
+	tm = tar.TypeReg
+	switch {
+	case m&os.ModeSymlink != 0:
+		tm = tar.TypeSymlink
+		if lfi, err := os.Lstat(fi.Name()); err == nil {
+			ln = lfi.Name()
 		}
-		tim := fi.ModTime()
-		hdr = &tar.Header{Name: fi.Name(), Mode: int64(m.Perm()),
-			Size: fi.Size(), ModTime: tim,
-			Typeflag: tm, Linkname: ln}
-		FillHeader(hdr)
+	case m&os.ModeDevice != 0 && m&os.ModeCharDevice != 0:
+		tm = tar.TypeChar
+	case m&os.ModeDevice != 0:
+		tm = tar.TypeBlock
+	case m&os.ModeNamedPipe != 0 || m&os.ModeSocket != 0:
+		tm = tar.TypeFifo
+	}
+	tim := fi.ModTime()
+	hdr = &tar.Header{Name: fi.Name(), Mode: int64(m.Perm()),
+		Size: fi.Size(), ModTime: tim,
+		Typeflag: tm, Linkname: ln}
+	FillHeader(hdr)
+	return
+}
+
+func FhandleTarHeader(fh *os.File) (hdr *tar.Header, err error) {
+	if fi, err := fh.Stat(); err == nil {
+		return Finfo2Theader(fi)
+	}
+	return
+}
+
+func FileTarHeader(fn string) (hdr *tar.Header, err error) {
+	if fi, err := os.Stat(fn); err == nil {
+		return Finfo2Theader(fi)
 	}
 	return
 }
@@ -303,7 +339,7 @@ func FillHeader(hdr *tar.Header) {
 	}
 }
 
-func writeTar(tw *tar.Writer, hdr *tar.Header, r io.Reader) (err error) {
+func WriteTar(tw *tar.Writer, hdr *tar.Header, r io.Reader) (err error) {
 	if err = tw.WriteHeader(hdr); err != nil {
 		logger.Panicf("error writing tar header %+v into %+v: %s", hdr, tw, err)
 	}
@@ -320,11 +356,11 @@ func writeInfo(tw *tar.Writer, info Info) (err error) {
 	//logger.Printf("writeInfo")
 	txt, length := info.NewReader()
 	//logger.Printf("txt=%s", txt)
-	hdr := &tar.Header{Name: info.Get("X-AODB-Id") + SuffInfo, Mode: 0440,
+	hdr := &tar.Header{Name: info.Get(InfoPref + "Id") + SuffInfo, Mode: 0440,
 		Size: int64(length), Typeflag: tar.TypeReg}
 	FillHeader(hdr)
 	logger.Printf("writeInfo(%+v into %+v)", hdr, tw)
-	return writeTar(tw, hdr, txt)
+	return WriteTar(tw, hdr, txt)
 }
 
 func writeCompressed(tw *tar.Writer, fn string, info Info,
@@ -344,11 +380,11 @@ func writeCompressed(tw *tar.Writer, fn string, info Info,
 					case "bzip2":
 						end = "bz2"
 					}
-					if hdr, err := fileTarHeader(fn); err == nil {
-						hdr.Name = info.Get("X-AODB-Id") + SuffData + end
+					if hdr, err := FileTarHeader(fn); err == nil {
+						hdr.Name = info.Get(InfoPref + "Id") + SuffData + end
 						hdr.Size = fi.Size()
 						hdr.Mode = 0400
-						err = writeTar(tw, hdr, cfh)
+						err = WriteTar(tw, hdr, cfh)
 					}
 				}
 			}
@@ -371,8 +407,8 @@ func AppendFile(tarfn string, info Info, fn string, compressMethod string) (pos 
 	defer tw.Close()
 	defer tw.Flush()
 	if fi, err := os.Stat(fn); err == nil {
-		info.Add("X-AODB-Original-Size", fmt.Sprintf("%d", fi.Size()))
-		info.Add("X-AODB-Original-Name", fn)
+		info.Add(InfoPref + "Original-Size", fmt.Sprintf("%d", fi.Size()))
+		info.Add(InfoPref + "Original-Name", fn)
 
 		//pos, _ := fh.Seek(0, 1); logger.Printf("B %+v pos: %d", fh, pos)
 		if err = writeInfo(tw, info); err == nil {

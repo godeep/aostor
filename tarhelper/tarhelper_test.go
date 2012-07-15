@@ -1,5 +1,5 @@
 //!/usr/bin/env go
-package aodb
+package aostor
 
 import (
 	"compress/gzip"
@@ -61,7 +61,7 @@ func TestAppendFile(c *testing.T) {
 	tarfn := os.TempDir() + "/tarhelper_test.tar"
 	fi, err := os.Stat("tarhelper_test.go")
 	oldsize := fi.Size()
-	info := Info{"X-AODB-Id": fmt.Sprintf("1234-%d", os.Getpid())}
+	info := Info{m: map[string]string{"X-AODB-Id": fmt.Sprintf("1234-%d", os.Getpid())}}
 	i := os.Getpid()%10 + 1
 	buf := make([]byte, i)
 	var n int
