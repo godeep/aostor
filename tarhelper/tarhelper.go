@@ -85,7 +85,7 @@ func writeItem(tarfn string, fn string) (pos uint64, err error) {
 			tw *tar.Writer
 			f  ReadWriteSeekCloser
 		)
-		if tw, f, pos, err = openForAppend(tarfn); err == nil {
+		if tw, f, pos, err = OpenForAppend(tarfn); err == nil {
 			defer f.Close()
 			defer tw.Close() //LIFO
 			if err := tw.WriteHeader(hdr); err == nil {
@@ -160,7 +160,7 @@ func FindTarEnd(r io.ReadSeeker, last_known uint64) (pos uint64, err error) {
 	return uint64(p), err
 }
 
-func openForAppend(tarfn string) (
+func OpenForAppend(tarfn string) (
 	tw *tar.Writer, fobj ReadWriteSeekCloser, pos uint64, err error) {
 	fh, err := os.OpenFile(tarfn, os.O_RDWR|os.O_CREATE, 0640)
 	if err != nil {
@@ -234,6 +234,9 @@ func ReadInfo(r io.Reader) (info Info) {
 	rb := bufio.NewReader(r)
 	var err error
 	var key, val string
+	if info.m == nil {
+		info.m = make(map[string]string)
+	}
 	for err == nil {
 		if key, err = rb.ReadString(':'); err == nil {
 			if val, err = rb.ReadString('\n'); err == nil {
@@ -247,17 +250,32 @@ func ReadInfo(r io.Reader) (info Info) {
 func (info Info) NewReader() (io.Reader, int) {
 	buf := make([]string, len(info.m) + 3)
 	n, i := 0, 0
+	info.Add(InfoPref + "Id", info.Key)
+	if info.Ipos > 0 {
+		info.Add(InfoPref + "Ipos", fmt.Sprintf("%d", info.Ipos))
+	}
+	if info.Dpos > 0 {
+		info.Add(InfoPref + "Dpos", fmt.Sprintf("%d", info.Dpos))
+	}
+	/*
 	buf[0] = fmt.Sprintf(InfoPref + "Id: %s", info.Key)
 	buf[1] = fmt.Sprintf(InfoPref + "Ipos: %d", info.Ipos)
 	buf[2] = fmt.Sprintf(InfoPref + "Dpos: %d", info.Dpos)
+	*/
 	for k, v := range info.m {
-		buf[i] = fmt.Sprintf("%s: %s", http.CanonicalHeaderKey(k), v)
+		if !strings.HasPrefix(k, InfoPref) || len(k) > len(InfoPref) {
+			buf[i] = fmt.Sprintf("%s: %s", http.CanonicalHeaderKey(k), v)
+			n += len(buf[i]) + 1
+			i++
+		}
 	}
 	logger.Printf("info=%+v", info)
+	/*
 	for _, s := range buf {
 		n += len(s) + 1
 		i++
 	}
+	*/
 	return strings.NewReader(strings.Join(buf, "\n")), n - 1
 }
 func (info Info) Bytes() []byte {
@@ -267,6 +285,14 @@ func (info Info) Bytes() []byte {
 		logger.Panicf("cannot read back: %s", err)
 	}
 	return ret
+}
+
+func StrToBytes(txt string) (ret []byte) {
+	ret, err := ioutil.ReadAll(strings.NewReader(txt))
+	if err != nil {
+		logger.Panicf("cannot read back: %s", err)
+	}
+	return
 }
 
 func Finfo2Theader(fi os.FileInfo) (hdr *tar.Header, err error) {
@@ -356,10 +382,10 @@ func WriteTar(tw *tar.Writer, hdr *tar.Header, r io.Reader) (err error) {
 	if err = tw.WriteHeader(hdr); err != nil {
 		logger.Panicf("error writing tar header %+v into %+v: %s", hdr, tw, err)
 	}
-	if n, err := io.Copy(tw, r); err != nil {
+	if _, err := io.Copy(tw, r); err != nil {
 		logger.Panicf("error copying tar data %+v into %+v: %s", r, tw, err)
 	} else {
-		logger.Printf("written %+v, then %d bytes into %+v", hdr, n, tw)
+		//logger.Printf("written %+v, then %d bytes into %+v", hdr, n, tw)
 	}
 	tw.Flush()
 	return
@@ -411,9 +437,9 @@ func writeCompressed(tw *tar.Writer, fn string, info Info,
 
 // AppendFile appends file fn with info
 func AppendFile(tarfn string, info Info, fn string, compressMethod string) (pos uint64, err error) {
-	tw, fh, pos, err := openForAppend(tarfn)
+	tw, fh, pos, err := OpenForAppend(tarfn)
 	if err != nil {
-		logger.Printf("openForAppend(%s): %s", tarfn, err)
+		logger.Printf("OpenForAppend(%s): %s", tarfn, err)
 		return
 	}
 	defer fh.Close()
@@ -445,7 +471,7 @@ func AppendFile(tarfn string, info Info, fn string, compressMethod string) (pos 
 // AppendLink appends as link pointing at a previous item
 func AppendLink(tarfn string, info Info, src string, dst string) (err error) {
 	//var (twp *tar.Writer; fh ReadWriteSeekCloser; pos uint64)
-	if tw, fh, _, err := openForAppend(tarfn); err == nil {
+	if tw, fh, _, err := OpenForAppend(tarfn); err == nil {
 		defer fh.Close()
 		defer tw.Close()
 

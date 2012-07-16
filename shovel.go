@@ -4,10 +4,13 @@ import (
 	"archive/tar"
 	"flag"
 	"fmt"
-	"github.com/jbarham/go-cdb"
+	// "github.com/jbarham/go-cdb"
+	// "cdb"
+	"github.com/tgulacsi/go-cdb"
+	//"path"
 	"io"
-	"os"
 	"log"
+	"os"
 	"strings"
 	"unosoft.hu/aostor/tarhelper"
 )
@@ -30,82 +33,105 @@ func CreateTar(tarfn string, dirname string) error {
 	if err != nil {
 		return err
 	}
-	fh, err := os.OpenFile(tarfn, os.O_APPEND|os.O_CREATE, 0640)
+	tw, fh, pos, err := aostor.OpenForAppend(tarfn)
+	//fh, err := os.OpenFile(tarfn, os.O_APPEND|os.O_CREATE, 0640)
 	if err != nil {
 		return err
 	}
 	defer fh.Close()
-	tw := tar.NewWriter(fh)
+	//tw := tar.NewWriter(fh)
 	defer tw.Close()
 
-	cfh, err := os.OpenFile(tarfn+".cdb", os.O_WRONLY|os.O_CREATE, 0644)
+	cfh, err := os.OpenFile(tarfn + ".cdb", os.O_WRONLY|os.O_CREATE, 0644)
 	if err != nil {
 		return err
 	}
+	defer cfh.Close()
+	/*
 	ir, iw := io.Pipe()
-	go cdb.Make(cfh, ir)
+	c := make(chan error)
+	go cdbMake(c, cfh, ir)
+	*/
+	c := make(chan cdb.Element, 1)
+	d := make(chan error, 0)
+	go cdb.MakeFromChan(cfh, c, d)
 
 	var (
-		buf    map[string]fElt = make(map[string]fElt, 10)
-		key    string
+		buf    map[string]fElt = make(map[string]fElt, 32)
+		key, bn, fn    string
 		info   aostor.Info
 		isInfo bool
 	)
 	for _, file := range list {
-		nm := file.Name()
+		bn = file.Name()
+		fn = dirname + "/" + bn
 		switch {
-		case strings.HasSuffix(nm, aostor.SuffInfo):
-			key, isInfo = nm[:len(nm)-1], true
-			if ifh, err := os.Open(nm); err == nil {
+		case strings.HasSuffix(bn, aostor.SuffInfo):
+			key, isInfo = bn[:len(bn)-1], true
+			if ifh, err := os.Open(dirname + "/" + bn); err == nil {
 				info = aostor.ReadInfo(ifh)
 				ifh.Close()
 			} else {
-				logger.Printf("cannot read info from %s: %s", nm, err)
+				logger.Printf("cannot read info from %s: %s", fn, err)
 			}
-		case strings.Contains(nm, aostor.SuffLink):
-			key, isInfo = strings.Split(nm, aostor.SuffLink)[0], false
-		case strings.Contains(nm, aostor.SuffData):
-			key, isInfo = strings.Split(nm, aostor.SuffData)[0], false
+		case strings.Contains(bn, aostor.SuffLink):
+			key, isInfo = strings.Split(bn, aostor.SuffLink)[0], false
+		case strings.Contains(bn, aostor.SuffData):
+			key, isInfo = strings.Split(bn, aostor.SuffData)[0], false
 		default:
 			key, isInfo = "", true
 		}
-		logger.Printf("fn=%s -> key=%s ?%s", nm, key, isInfo)
+		// logger.Printf("fn=%s -> key=%s ?%s", fn, key, isInfo)
 		if key != "" {
 			elt, ok := buf[key]
 			if isInfo {
-				elt.infoFn = nm
+				elt.infoFn = fn
 				elt.info = info
 			} else {
-				elt.dataFn = nm
+				elt.dataFn = fn
 			}
 			if ok && elt.infoFn != "" && elt.dataFn != "" { //full
 				elt.info.Key = key
-				elt.info.Ipos, err = appendFile(tw, fh, elt.infoFn)
+				elt.info.Ipos = pos
+				_, pos, err = appendFile(tw, fh, elt.infoFn)
 				if err != nil {
-					fmt.Printf("cannot append %s", elt.infoFn)
+					logger.Panicf("cannot append %s", elt.infoFn)
 				}
-				elt.info.Dpos, err = appendFile(tw, fh, elt.dataFn)
+				elt.info.Dpos = pos
+				_, pos, err = appendFile(tw, fh, elt.dataFn)
 				if err != nil {
-					fmt.Printf("cannot append %s", elt.dataFn)
+					logger.Panicf("cannot append %s", elt.dataFn)
 				}
+				/*
 				if err = elt.cdbDump(iw); err != nil {
-					fmt.Printf("cannot dump cdb info: %s", err)
+					logger.Panicf("cannot dump cdb info: %s", err)
 					return err
 				}
+				*/
+				c <- cdb.Element{aostor.StrToBytes(key), elt.info.Bytes()}
 				delete(buf, key)
 			} else {
 				buf[key] = elt
 			}
 		}
 	}
-	iw.Close()
+	c <- cdb.Element{}
+	// iw.Close()
+	if err != nil {
+		fmt.Printf("error: %s", err)
+	}
+	err = <-d
+	cfh.Close()
+	if err != nil {
+		logger.Printf("cdbMake error: %s", err)
+	}
 	if len(buf) > 0 {
-		fmt.Printf("remaining files: %+v", buf)
+		logger.Printf("remaining files: %+v", buf)
 	}
 	return err
 }
 
-func appendFile(tw *tar.Writer, tfh io.Seeker, fn string) (pos uint64, err error) {
+func appendFile(tw *tar.Writer, tfh io.Seeker, fn string) (pos1 uint64, pos2 uint64, err error) {
 	hdr, err := aostor.FileTarHeader(fn)
 	if err != nil {
 		return
@@ -119,9 +145,14 @@ func appendFile(tw *tar.Writer, tfh io.Seeker, fn string) (pos uint64, err error
 	if err != nil {
 		return
 	}
-	pos = uint64(p)
+	pos1 = uint64(p)
 	aostor.WriteTar(tw, hdr, sfh)
 	tw.Flush()
+	p, err = tfh.Seek(0, 1)
+	if err != nil {
+		return
+	}
+	pos2 = uint64(p)
 	return
 }
 
@@ -132,8 +163,18 @@ func (elt fElt) cdbDump(w io.Writer) error {
 	return err
 }
 
+/*
+func cdbMake(c chan <-error, w io.WriteSeeker, r io.Reader) {
+	c <- cdb.Make(w, r)
+}
+*/
+
 func main() {
 	flag.Parse()
 	tarfn, dirname := flag.Arg(0), flag.Arg(1)
-	CreateTar(tarfn, dirname)
+	if err := CreateTar(tarfn, dirname); err != nil {
+		fmt.Printf("ERROR: %s", err)
+	} else {
+		fmt.Println("OK")
+	}
 }
