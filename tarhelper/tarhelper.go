@@ -33,7 +33,7 @@ const (
 	SuffLink = "@"
 	SuffData = "#"
 	BS       = 512
-	InfoPref = "X-Aodb-"
+	InfoPref = "X-Aostor-"
 )
 
 var tarEndCache = map[string]uint64{}
@@ -221,7 +221,7 @@ func (info Info) Add(key string, val string) {
 	k := http.CanonicalHeaderKey(key)
 	val = strings.TrimSpace(val)
 	info.m[k] = val
-	if val != "" {
+	if val != "" && strings.HasPrefix(k, InfoPref) {
 		switch k[len(InfoPref):] {
 		case "Id": info.Key = val
 		case "Ipos": info.Ipos, _ = strconv.ParseUint(val, 0, 64)

@@ -42,25 +42,25 @@ func CreateTar(tarfn string, dirname string) error {
 	//tw := tar.NewWriter(fh)
 	defer tw.Close()
 
-	cfh, err := os.OpenFile(tarfn + ".cdb", os.O_WRONLY|os.O_CREATE, 0644)
+	cfh, err := os.OpenFile(tarfn+".cdb", os.O_WRONLY|os.O_CREATE, 0644)
 	if err != nil {
 		return err
 	}
 	defer cfh.Close()
 	/*
-	ir, iw := io.Pipe()
-	c := make(chan error)
-	go cdbMake(c, cfh, ir)
+		ir, iw := io.Pipe()
+		c := make(chan error)
+		go cdbMake(c, cfh, ir)
 	*/
 	c := make(chan cdb.Element, 1)
 	d := make(chan error, 0)
 	go cdb.MakeFromChan(cfh, c, d)
 
 	var (
-		buf    map[string]fElt = make(map[string]fElt, 32)
-		key, bn, fn    string
-		info   aostor.Info
-		isInfo bool
+		buf         map[string]fElt = make(map[string]fElt, 32)
+		key, bn, fn string
+		info        aostor.Info
+		isInfo      bool
 	)
 	for _, file := range list {
 		bn = file.Name()
@@ -103,10 +103,10 @@ func CreateTar(tarfn string, dirname string) error {
 					logger.Panicf("cannot append %s", elt.dataFn)
 				}
 				/*
-				if err = elt.cdbDump(iw); err != nil {
-					logger.Panicf("cannot dump cdb info: %s", err)
-					return err
-				}
+					if err = elt.cdbDump(iw); err != nil {
+						logger.Panicf("cannot dump cdb info: %s", err)
+						return err
+					}
 				*/
 				c <- cdb.Element{aostor.StrToBytes(key), elt.info.Bytes()}
 				delete(buf, key)
