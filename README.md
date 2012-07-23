@@ -21,4 +21,18 @@ Tar needs an index, to be able retrieve files in random order. For this, each ta
 TODO: one needs to find out in which tar the file is in!
 
 ## Appending files
-Files written into a simple directory, just as they would be in the tar. If the count/size reaches a threshold, they're shoveled in a tar, accompanied by the .cdb.
+Files written into a simple directory ("staging"), just as they would be in the tar. If the count/size reaches a threshold, they're shoveled in a tar, accompanied by the .cdb.
+
+
+## Retrieving a file
+First the staging directory is checked, if the <key>! (info) file is there, then read, and the <key>#bz2 is checked.
+
+If the staging directory is empty, then we start searching the cdbs, first the newest (L0), then the next level (L1), then the next (L2), and so on.
+
+
+## Index "compaction"
+When *shovel* is called, the files in the staging dir are shoveled in some tars, accompanied by .cdb. The .cdb is symlinked into the L0 directory.
+Then the L1 directory is checked: if then number of cdbs are bigger than the threshold (10), then they are merged into a new cdb in the L1 directory, and these L0 cdbs are deleted.
+If this happened, then the L(n+1) dir is checked: if the number of cdbs are bigger than the threshold (10), then they are merged into a new cdb in the L(n+2) directory, and these L(n+1) cdbs are deleted.
+
+CDB has a size limit of 2Gb, so the compactor must take this into account, too!

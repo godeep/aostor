@@ -46,8 +46,8 @@ func (e *SymlinkError) Error() string {
 	return "symlink found: " + e.Linkname
 }
 
-// readItem reads from
-func readItem(tarfn string, pos int64) (ret io.Reader, err error) {
+// ReadItem reads from
+func ReadItem(tarfn string, pos int64) (ret io.Reader, err error) {
 	if f, err := os.Open(tarfn); err == nil {
 		defer f.Close()
 		f.Seek(pos, 0)
@@ -230,9 +230,8 @@ func (info Info) Add(key string, val string) {
 	}
 }
 
-func ReadInfo(r io.Reader) (info Info) {
+func ReadInfo(r io.Reader) (info Info, err error) {
 	rb := bufio.NewReader(r)
-	var err error
 	var key, val string
 	if info.m == nil {
 		info.m = make(map[string]string)
