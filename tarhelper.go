@@ -3,19 +3,19 @@ package aostor
 
 import (
 	"archive/tar"
+	"bufio"
 	"compress/bzip2"
 	"compress/flate"
 	"compress/gzip"
 	"errors"
-	"strconv"
 	"fmt"
 	"io"
-	"bufio"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
 	"os/user"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -198,9 +198,9 @@ func OpenForAppend(tarfn string) (
 }
 
 type Info struct {
-	Key string
+	Key        string
 	Ipos, Dpos uint64
-	m map[string]string
+	m          map[string]string
 }
 
 func (info Info) Get(key string) string {
@@ -223,9 +223,12 @@ func (info Info) Add(key string, val string) {
 	info.m[k] = val
 	if val != "" && strings.HasPrefix(k, InfoPref) {
 		switch k[len(InfoPref):] {
-		case "Id": info.Key = val
-		case "Ipos": info.Ipos, _ = strconv.ParseUint(val, 0, 64)
-		case "Dpos": info.Dpos, _ = strconv.ParseUint(val, 0, 64)
+		case "Id":
+			info.Key = val
+		case "Ipos":
+			info.Ipos, _ = strconv.ParseUint(val, 0, 64)
+		case "Dpos":
+			info.Dpos, _ = strconv.ParseUint(val, 0, 64)
 		}
 	}
 }
@@ -247,35 +250,26 @@ func ReadInfo(r io.Reader) (info Info, err error) {
 }
 
 func (info Info) NewReader() (io.Reader, int) {
-	buf := make([]string, len(info.m) + 3)
-	n, i := 0, 0
-	info.Add(InfoPref + "Id", info.Key)
+	buf := make([]string, len(info.m)+3)
+	i := 0
+	if info.Key != "" {
+		info.Add(InfoPref+"Id", info.Key)
+	}
 	if info.Ipos > 0 {
-		info.Add(InfoPref + "Ipos", fmt.Sprintf("%d", info.Ipos))
+		info.Add(InfoPref+"Ipos", fmt.Sprintf("%d", info.Ipos))
 	}
 	if info.Dpos > 0 {
-		info.Add(InfoPref + "Dpos", fmt.Sprintf("%d", info.Dpos))
+		info.Add(InfoPref+"Dpos", fmt.Sprintf("%d", info.Dpos))
 	}
-	/*
-	buf[0] = fmt.Sprintf(InfoPref + "Id: %s", info.Key)
-	buf[1] = fmt.Sprintf(InfoPref + "Ipos: %d", info.Ipos)
-	buf[2] = fmt.Sprintf(InfoPref + "Dpos: %d", info.Dpos)
-	*/
 	for k, v := range info.m {
 		if !strings.HasPrefix(k, InfoPref) || len(k) > len(InfoPref) {
 			buf[i] = fmt.Sprintf("%s: %s", http.CanonicalHeaderKey(k), v)
-			n += len(buf[i]) + 1
 			i++
 		}
 	}
-	logger.Printf("info=%+v", info)
-	/*
-	for _, s := range buf {
-		n += len(s) + 1
-		i++
-	}
-	*/
-	return strings.NewReader(strings.Join(buf, "\n")), n - 1
+	text := strings.Join(buf, "\n")
+	logger.Printf("info[%d]=%s", len(text), text)
+	return strings.NewReader(text), len(text)
 }
 func (info Info) Bytes() []byte {
 	r, _ := info.NewReader()
@@ -394,7 +388,7 @@ func writeInfo(tw *tar.Writer, info Info) (err error) {
 	//logger.Printf("writeInfo")
 	txt, length := info.NewReader()
 	//logger.Printf("txt=%s", txt)
-	hdr := &tar.Header{Name: info.Get(InfoPref + "Id") + SuffInfo, Mode: 0440,
+	hdr := &tar.Header{Name: info.Get(InfoPref+"Id") + SuffInfo, Mode: 0440,
 		Size: int64(length), Typeflag: tar.TypeReg}
 	FillHeader(hdr)
 	logger.Printf("writeInfo(%+v into %+v)", hdr, tw)
@@ -419,7 +413,7 @@ func writeCompressed(tw *tar.Writer, fn string, info Info,
 						end = "bz2"
 					}
 					if hdr, err := FileTarHeader(fn); err == nil {
-						hdr.Name = info.Get(InfoPref + "Id") + SuffData + end
+						hdr.Name = info.Get(InfoPref+"Id") + SuffData + end
 						hdr.Size = fi.Size()
 						hdr.Mode = 0400
 						err = WriteTar(tw, hdr, cfh)
@@ -445,8 +439,8 @@ func AppendFile(tarfn string, info Info, fn string, compressMethod string) (pos 
 	defer tw.Close()
 	defer tw.Flush()
 	if fi, err := os.Stat(fn); err == nil {
-		info.Add(InfoPref + "Original-Size", fmt.Sprintf("%d", fi.Size()))
-		info.Add(InfoPref + "Original-Name", fn)
+		info.Add(InfoPref+"Original-Size", fmt.Sprintf("%d", fi.Size()))
+		info.Add(InfoPref+"Original-Name", fn)
 
 		//pos, _ := fh.Seek(0, 1); logger.Printf("B %+v pos: %d", fh, pos)
 		if err = writeInfo(tw, info); err == nil {

@@ -1,4 +1,5 @@
 package aostor
+
 //retrieve
 
 import (
@@ -7,7 +8,7 @@ import (
 	//"fmt"
 	"compress/bzip2"
 	"compress/gzip"
-	)
+)
 
 func Retrieve(uuid string) (info Info, reader io.Reader, err error) {
 	//is it in the temporary area?

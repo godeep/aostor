@@ -2,7 +2,7 @@ package aostor
 
 import (
 	"code.google.com/p/goconf/conf"
-	)
+)
 
 var DefaultConfigFile = "aostor.ini"
 
