@@ -5,13 +5,16 @@ package aostor
 import (
 	"io"
 	"os"
-	//"fmt"
+	"fmt"
+	"bytes"
+	"strings"
+	"path/filepath"
 	"compress/bzip2"
 	"compress/gzip"
+	"github.com/tgulacsi/go-cdb"
 )
 
-func Retrieve(uuid string) (info Info, reader io.Reader, err error) {
-	//is it in the temporary area?
+func Get(uuid string) (info Info, reader io.Reader, err error) {
 	conf, err := ReadConf("")
 	if err != nil {
 		return
@@ -20,41 +23,58 @@ func Retrieve(uuid string) (info Info, reader io.Reader, err error) {
 	if err != nil {
 		return
 	}
-	ifh, err := os.Open(staging_dir + "/" + uuid + SuffInfo)
+	// L00
+	info, reader, err = findAtStaging(uuid, staging_dir)
+	if err == nil {
+		return
+	} else if err != io.EOF {
+		return
+	}
+	index_base, err := conf.GetString("dirs", "index")
 	if err != nil {
-		if !os.IsNotExist(err) {
-			return
-		}
-		//start the search on level 0
-	} else {
-		if info, err = ReadInfo(ifh); err != nil {
-			return
-		}
-		var dfh *os.File
-		fn := staging_dir + "/" + uuid + SuffData + "bz2"
-		if fileExists(fn) {
-			if dfh, err = os.Open(fn); err != nil {
-				return
-			}
-			reader = bzip2.NewReader(dfh)
-		} else {
-			fn = staging_dir + "/" + uuid + SuffData + "gz"
-			if fileExists(fn) {
-				if dfh, err = os.Open(fn); err != nil {
-					return
-				}
-				if reader, err = gzip.NewReader(dfh); err != nil {
-					return
-				}
-			} else {
-				fn = staging_dir + "/" + uuid
-				if reader, err = os.Open(fn); err != nil {
-					return
-				}
-			}
-		}
+		return
 	}
 
+	info, reader, err = findAtLevelZero(uuid, index_base)
+	if err == nil {
+		return
+	} else if err != io.EOF {
+		return
+	}
+	var tar_uuid string
+	for level := 1; level < 10 && err == io.EOF; level++ {
+		tar_uuid, err = findInCdbs(uuid, index_base + fmt.Sprintf("/L%02d", level))
+	}
+	if err != nil {
+		return
+	}
+	tar_base, err := conf.GetString("dirs", "tar_base")
+	if err != nil {
+		return
+	}
+	if tar_uuid != "" {
+		var tarfn string
+		tarfn = findTar(tar_uuid, tar_base)
+		info, reader, err = GetFromCdb(uuid, tarfn + ".cdb")
+	}
+	return
+}
+
+func GetFromCdb(uuid string, cdb_fn string) (info Info, reader io.Reader, err error) {
+	db, err := cdb.Open(cdb_fn)
+	if err != nil {
+		return
+	}
+	data, err := db.Data(StrToBytes(uuid))
+	if err != nil {
+		return
+	}
+	info, err = ReadInfo(bytes.NewReader(data))
+	if err != nil {
+		return
+	}
+	tarfn := cdb_fn[:len(cdb_fn)-4]
+	reader, err = ReadItem(tarfn, int64(info.Dpos))
 	return
 }
 
@@ -68,3 +88,111 @@ func fileExists(fn string) bool {
 	}
 	return false
 }
+
+func findAtLevelZero(uuid string, path string) (info Info, reader io.Reader, err error) {
+	files, err := filepath.Glob(path + "/*.tar.cdb")
+	if err != nil {
+		return
+	}
+	for _, cdb_fn := range files {
+		info, reader, err = GetFromCdb(uuid, cdb_fn)
+		switch err {
+		case nil:
+			break
+		case io.EOF:
+			continue
+		default:
+			return info, nil, err
+		}
+	}
+
+	return
+}
+
+func findInCdbs(uuid string, path string) (string, error) {
+	var (
+		err error
+		)
+	files, err := filepath.Glob(path + "/*.cdb")
+	if err != nil {
+		return "", err
+	}
+	for _, cdb_fn := range files {
+		db, err := cdb.Open(cdb_fn)
+		if err != nil {
+			return "", err
+		}
+		tar_uuid_b, err := db.Data(StrToBytes(uuid))
+		switch err {
+		case nil:
+			return BytesToStr(tar_uuid_b), nil
+		case io.EOF:
+			continue
+		default:
+			return "", err
+		}
+	}
+
+	return "", io.EOF
+}
+
+func findTar(uuid string, path string) string {
+	end := uuid + ".tar"
+	var tarfn string
+	filepath.Walk(path, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			if info.IsDir() {
+				return filepath.SkipDir
+			} else {
+				return nil
+			}
+		} else {
+			if strings.HasSuffix(info.Name(), end) {
+				tarfn = path + "/" + info.Name()
+				return io.EOF
+			}
+		}
+		return nil
+		})
+	return tarfn
+}
+
+func findAtStaging(uuid string, path string) (info Info, reader io.Reader, err error) {
+	ifh, err := os.Open(path + "/" + uuid + SuffInfo)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return
+		}
+		err = nil
+		return
+	}
+	info, err = ReadInfo(ifh)
+	if err != nil {
+		return
+	}
+	var dfh *os.File
+	fn := path + "/" + uuid + SuffData + "bz2"
+	if fileExists(fn) {
+		if dfh, err = os.Open(fn); err != nil {
+			return
+		}
+		reader = bzip2.NewReader(dfh)
+	} else {
+		fn = path + "/" + uuid + SuffData + "gz"
+		if fileExists(fn) {
+			if dfh, err = os.Open(fn); err != nil {
+				return
+			}
+			if reader, err = gzip.NewReader(dfh); err != nil {
+				return
+			}
+		} else {
+			fn = path + "/" + uuid
+			if reader, err = os.Open(fn); err != nil {
+				return
+			}
+		}
+	}
+	return
+}
+

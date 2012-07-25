@@ -17,6 +17,7 @@ import (
 	"os/user"
 	"strconv"
 	"strings"
+	"bytes"
 	"time"
 )
 
@@ -280,12 +281,21 @@ func (info Info) Bytes() []byte {
 	return ret
 }
 
+func StrToBytes(str string) []byte {
+	return bytes.NewBufferString(str).Bytes()
+}
+/*
 func StrToBytes(txt string) (ret []byte) {
 	ret, err := ioutil.ReadAll(strings.NewReader(txt))
 	if err != nil {
 		logger.Panicf("cannot read back: %s", err)
 	}
 	return
+}
+*/
+
+func BytesToStr(buf []byte) string {
+	return bytes.NewBuffer(buf).String()
 }
 
 func Finfo2Theader(fi os.FileInfo) (hdr *tar.Header, err error) {
