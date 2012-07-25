@@ -3,15 +3,15 @@ package aostor
 //retrieve
 
 import (
-	"io"
-	"os"
-	"fmt"
 	"bytes"
-	"strings"
-	"path/filepath"
 	"compress/bzip2"
 	"compress/gzip"
+	"fmt"
 	"github.com/tgulacsi/go-cdb"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
 )
 
 func Get(uuid string) (info Info, reader io.Reader, err error) {
@@ -43,7 +43,7 @@ func Get(uuid string) (info Info, reader io.Reader, err error) {
 	}
 	var tar_uuid string
 	for level := 1; level < 10 && err == io.EOF; level++ {
-		tar_uuid, err = findInCdbs(uuid, index_base + fmt.Sprintf("/L%02d", level))
+		tar_uuid, err = findInCdbs(uuid, index_base+fmt.Sprintf("/L%02d", level))
 	}
 	if err != nil {
 		return
@@ -55,13 +55,14 @@ func Get(uuid string) (info Info, reader io.Reader, err error) {
 	if tar_uuid != "" {
 		var tarfn string
 		tarfn = findTar(tar_uuid, tar_base)
-		info, reader, err = GetFromCdb(uuid, tarfn + ".cdb")
+		info, reader, err = GetFromCdb(uuid, tarfn+".cdb")
 	}
 	return
 }
 
 func GetFromCdb(uuid string, cdb_fn string) (info Info, reader io.Reader, err error) {
 	db, err := cdb.Open(cdb_fn)
+	defer db.Close()
 	if err != nil {
 		return
 	}
@@ -112,7 +113,7 @@ func findAtLevelZero(uuid string, path string) (info Info, reader io.Reader, err
 func findInCdbs(uuid string, path string) (string, error) {
 	var (
 		err error
-		)
+	)
 	files, err := filepath.Glob(path + "/*.cdb")
 	if err != nil {
 		return "", err
@@ -123,6 +124,7 @@ func findInCdbs(uuid string, path string) (string, error) {
 			return "", err
 		}
 		tar_uuid_b, err := db.Data(StrToBytes(uuid))
+		db.Close()
 		switch err {
 		case nil:
 			return BytesToStr(tar_uuid_b), nil
@@ -153,7 +155,7 @@ func findTar(uuid string, path string) string {
 			}
 		}
 		return nil
-		})
+	})
 	return tarfn
 }
 
@@ -167,6 +169,7 @@ func findAtStaging(uuid string, path string) (info Info, reader io.Reader, err e
 		return
 	}
 	info, err = ReadInfo(ifh)
+	ifh.Close()
 	if err != nil {
 		return
 	}
@@ -195,4 +198,3 @@ func findAtStaging(uuid string, path string) (info Info, reader io.Reader, err e
 	}
 	return
 }
-
