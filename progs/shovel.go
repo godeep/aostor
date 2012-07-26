@@ -9,7 +9,7 @@ import (
 	"log"
 	"os"
 	"strings"
-	"unosoft.hu/aostor/tarhelper"
+	"unosoft.hu/aostor"
 )
 
 var logger = log.New(os.Stderr, "tarhelper ", log.LstdFlags|log.Lshortfile)
@@ -66,10 +66,15 @@ func CreateTar(tarfn string, dirname string) error {
 		case strings.HasSuffix(bn, aostor.SuffInfo):
 			key, isInfo = bn[:len(bn)-1], true
 			if ifh, err := os.Open(dirname + "/" + bn); err == nil {
-				info = aostor.ReadInfo(ifh)
+				info, err = aostor.ReadInfo(ifh)
+				if err != nil {
+					logger.Printf("cannot read info from %s: %s", fn, err)
+					continue
+				}
 				ifh.Close()
 			} else {
 				logger.Printf("cannot read info from %s: %s", fn, err)
+				continue
 			}
 		case strings.Contains(bn, aostor.SuffLink):
 			key, isInfo = strings.Split(bn, aostor.SuffLink)[0], false

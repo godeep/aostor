@@ -3,13 +3,14 @@ package aostor
 import (
 	"bufio"
 	"bytes"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"strconv"
 	"strings"
-	"fmt"
-	)
+)
+
 const InfoPref = "X-Aostor-"
 
 type Info struct {
@@ -60,6 +61,9 @@ func ReadInfo(r io.Reader) (info Info, err error) {
 				info.Add(key[:len(key)-1], val[:len(val)-1])
 			}
 		}
+	}
+	if err == io.EOF {
+		err = nil
 	}
 	return
 }

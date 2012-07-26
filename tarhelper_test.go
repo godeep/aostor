@@ -61,7 +61,11 @@ func TestAppendFile(c *testing.T) {
 	tarfn := os.TempDir() + "/tarhelper_test.tar"
 	fi, err := os.Stat("tarhelper_test.go")
 	oldsize := fi.Size()
-	info := Info{m: map[string]string{InfoPref + "Id": fmt.Sprintf("1234-%d", os.Getpid())}}
+	uuid, err := StrUUID()
+	if err != nil {
+		c.Fatalf("cannot generate uuid: %s", err)
+	}
+	info := Info{m: map[string]string{InfoPref + "Id": uuid}}
 	i := os.Getpid()%10 + 1
 	buf := make([]byte, i)
 	var n int
@@ -81,5 +85,11 @@ func TestAppendFile(c *testing.T) {
 	log.Printf("old=%d new=%d", oldsize, newsize)
 	if newsize == 0 || oldsize >= newsize {
 		//c.Fatal()
+	}
+}
+
+func TestManyAppend(c *testing.T) {
+	for i := 0; i < 1000; i++ {
+		TestAppendFile(c)
 	}
 }

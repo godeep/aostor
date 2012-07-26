@@ -192,7 +192,6 @@ func OpenForAppend(tarfn string) (
 	return
 }
 
-
 func Finfo2Theader(fi os.FileInfo) (hdr *tar.Header, err error) {
 	m := fi.Mode()
 	var (
