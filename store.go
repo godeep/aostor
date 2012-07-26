@@ -1,10 +1,10 @@
 package aostor
 
 import (
+	"fmt"
 	"github.com/nu7hatch/gouuid"
 	"io"
 	"os"
-	"fmt"
 )
 
 func Put(info Info, data io.Reader) (key string, err error) {

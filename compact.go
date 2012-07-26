@@ -3,12 +3,13 @@ package aostor
 import (
 	"fmt"
 	//"io"
-	"os"
-	"time"
-	"strings"
-	"path/filepath"
+	"errors"
 	"github.com/tgulacsi/go-cdb"
-	)
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+)
 
 //Compact compacts the index cdbs
 func CompactIndices(level int) error {
@@ -51,9 +52,13 @@ func compactLevel(level int, index_dir string, threshold int) (int, error) {
 		return 0, nil
 	}
 	dest_dir := index_dir + "/" + fmt.Sprintf("L%02d", level+1)
-	for i := 1; i *threshold <= len(files); i++ {
-		err = mergeCdbs(dest_dir + "/" + strNow() + ".cdb",
-			files[(i-1)*threshold:i*threshold], level)
+	for i := 1; i*threshold <= len(files); i++ {
+		uuid, err := StrUUID()
+		if err != nil {
+			return 0, err
+		}
+		err = mergeCdbs(dest_dir+"/"+strNow()+"-"+uuid+".cdb",
+			files[(i-1)*threshold:i*threshold], level, threshold, true)
 		if err != nil {
 			return 0, err
 		}
@@ -62,7 +67,7 @@ func compactLevel(level int, index_dir string, threshold int) (int, error) {
 	return num, err
 }
 
-func mergeCdbs(dest_cdb_fn string, source_cdb_files []string, level int) error {
+func mergeCdbs(dest_cdb_fn string, source_cdb_files []string, level int, threshold int, move bool) error {
 	cw, err := cdb.NewWriter(dest_cdb_fn)
 	defer cw.Close()
 	if err != nil {
@@ -71,14 +76,14 @@ func mergeCdbs(dest_cdb_fn string, source_cdb_files []string, level int) error {
 	booknum := 0
 	var book_id []byte
 	var books map[string]string
-	for _, sfn := range(source_cdb_files) {
+	for _, sfn := range source_cdb_files {
 		if level == 0 {
 			book_id = StrToBytes(fmt.Sprintf("/%d", booknum))
 			booknum++
 			//FIXME: store only the relative path?
 			cw.PutPair(book_id, StrToBytes(sfn[:-4]))
 		} else {
-			books = make(map[string]string, 10 ^ level)
+			books = make(map[string]string, threshold^level)
 		}
 		sfh, err := os.Open(sfn)
 		if err != nil {
@@ -109,6 +114,18 @@ func mergeCdbs(dest_cdb_fn string, source_cdb_files []string, level int) error {
 			}
 		}
 		sfh.Close()
+	}
+	cw.Close()
+	if !fileExists(dest_cdb_fn) {
+		return errors.New("cdb " + dest_cdb_fn + " not exists!")
+	}
+	if move {
+		for _, fn := range source_cdb_files {
+			err = os.Remove(fn)
+			if err != nil {
+				return err
+			}
+		}
 	}
 
 	return err
