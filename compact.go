@@ -9,7 +9,10 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"sort"
 )
+
+const MAX_CDB_SIZE = 2 >> 10 >> 3 >> 1
 
 //Compact compacts the index cdbs
 func CompactIndices(level int) error {
@@ -44,27 +47,75 @@ func strNow() string {
 func compactLevel(level int, index_dir string, threshold int) (int, error) {
 	num := 0
 	path := index_dir + "/" + fmt.Sprintf("L%02d", level)
-	files, err := filepath.Glob(path + "/*.cdb")
+	files_a, err := filepath.Glob(path + "/*.cdb")
 	if err != nil {
 		return 0, err
 	}
-	if len(files) < threshold {
+	length := len(files_a)
+	if length < threshold {
 		return 0, nil
 	}
+	files := make(sizedFilenames, length)
+	j := 0
+	for _, fn := range(files_a) {
+		fsize := fileSize(fn)
+		if fsize > 0 {
+			files[j] = &sizedFilename{fn, fsize}
+			j++
+		}
+	}
+	sort.Sort(bySizeReversed{files})
 	dest_dir := index_dir + "/" + fmt.Sprintf("L%02d", level+1)
-	for i := 1; i*threshold <= len(files); i++ {
+	lskip := 0
+	for ; lskip < len(files); {
+		fbuf := make([]string, threshold)
+		size := int64(0)
+		askip := 0
+		for i, sizedfn := range(files[lskip:]) {
+			if size + sizedfn.size < MAX_CDB_SIZE {
+				fbuf[len(fbuf)] = sizedfn.filename
+				size += sizedfn.size
+				//delete(files, i)
+				if len(fbuf) >= threshold {
+					break
+				}
+			} else {
+				if askip == 0 {
+					askip = i
+				}
+			}
+		}
+		if askip == 0 {
+			askip = len(fbuf)
+		}
+		lskip += askip
+
 		uuid, err := StrUUID()
 		if err != nil {
 			return 0, err
 		}
-		err = mergeCdbs(dest_dir+"/"+strNow()+"-"+uuid+".cdb",
-			files[(i-1)*threshold:i*threshold], level, threshold, true)
+		err = mergeCdbs(dest_dir+"/"+strNow()+"-"+uuid+".cdb", fbuf,
+			level, threshold, true)
 		if err != nil {
 			return 0, err
 		}
-		num += threshold
+		num += len(fbuf)
 	}
 	return num, err
+}
+
+type sizedFilename struct {
+	filename string
+	size int64
+}
+type sizedFilenames []*sizedFilename
+func (s sizedFilenames) Len() int { return len(s) }
+func (s sizedFilenames) Swap(i, j int) { s[i], s[j] = s[j], s[i] }
+func (s sizedFilenames) Less(i, j int) bool { return s[i].size < s[j].size }
+
+type bySizeReversed struct { sizedFilenames }
+func (s bySizeReversed) Less(i, j int) bool {
+	return s.sizedFilenames[i].size > s.sizedFilenames[j].size
 }
 
 func mergeCdbs(dest_cdb_fn string, source_cdb_files []string, level int, threshold int, move bool) error {
@@ -129,4 +180,14 @@ func mergeCdbs(dest_cdb_fn string, source_cdb_files []string, level int, thresho
 	}
 
 	return err
+}
+
+//Returns the size of the file, -1 on error
+func fileSize(fn string) int64 {
+	if fh, err := os.Open(fn); err == nil {
+		if fi, err := fh.Stat(); err == nil {
+			return fi.Size()
+		}
+	}
+	return -1
 }
