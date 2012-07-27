@@ -87,9 +87,9 @@ func (info *Info) NewReader() (io.Reader, int) {
 	//length := 0
 	for k, v := range info.m {
 		//if !strings.HasPrefix(k, InfoPref) || len(k) > len(InfoPref) {
-			buf[i] = fmt.Sprintf("%s: %s", http.CanonicalHeaderKey(k), v)
-			//length += len(buf[i]) + 1
-			i++
+		buf[i] = fmt.Sprintf("%s: %s", http.CanonicalHeaderKey(k), v)
+		//length += len(buf[i]) + 1
+		i++
 		//}
 	}
 	text := strings.Join(buf, "\n")

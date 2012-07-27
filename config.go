@@ -1,11 +1,12 @@
 package aostor
 
 import (
-	"os"
 	"code.google.com/p/goconf/conf"
+	"os"
 )
 
 const DefaultConfigFile = "aostor.ini"
+
 var ConfigFile = DefaultConfigFile
 
 func ReadConf(fn string) (*conf.ConfigFile, error) {

@@ -1,9 +1,9 @@
 package aostor
 
 import (
-	"testing"
 	"os"
-	)
+	"testing"
+)
 
 func initConfig() {
 	logger.Printf("config: %s exists? %s", ConfigFile, fileExists(ConfigFile))
@@ -51,4 +51,13 @@ func TestGet(c *testing.T) {
 	if info.Key != key {
 		c.Fatalf("key mismatch: asked for %s, got %s", key, info.Key)
 	}
+}
+
+func TestCompact(c *testing.T) {
+	for i := 0; i < 1000; i++ {
+		if _, err := testPut(); err != nil {
+			c.Fatalf("cannot put: %s", err)
+		}
+	}
+	logger.Printf("MAX_CDB_SIZE: %d", MAX_CDB_SIZE)
 }

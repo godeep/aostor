@@ -12,10 +12,10 @@ import (
 	"time"
 )
 
-const MAX_CDB_SIZE = 2 >> 10 >> 3 >> 1
+const MAX_CDB_SIZE = (1 << 31) - 1
 
 //Compact compacts the index cdbs
-func CompactIndices(level int) error {
+func CompactIndices(level uint) error {
 	conf, err := ReadConf("")
 	if err != nil {
 		return err
@@ -24,12 +24,15 @@ func CompactIndices(level int) error {
 	if err != nil {
 		return err
 	}
-	threshold, err := conf.GetInt("threshold", "index")
+	var threshold uint
+	thres, err := conf.GetInt("threshold", "index")
 	if err != nil {
-		threshold = 10
+		threshold = uint(10)
+	} else {
+		threshold = uint(thres)
 	}
 	var n int
-	for level := 1; level < 10; level++ {
+	for level := uint(0); level < 10; level++ {
 		n, err = compactLevel(level, index_dir, threshold)
 		if err != nil {
 			return err
@@ -44,14 +47,14 @@ func strNow() string {
 	return strings.Replace(strings.Replace(time.Now().Format(time.RFC3339), "-", "", -1), ":", "", -1)
 }
 
-func compactLevel(level int, index_dir string, threshold int) (int, error) {
+func compactLevel(level uint, index_dir string, threshold uint) (int, error) {
 	num := 0
 	path := index_dir + "/" + fmt.Sprintf("L%02d", level)
 	files_a, err := filepath.Glob(path + "/*.cdb")
 	if err != nil {
 		return 0, err
 	}
-	length := len(files_a)
+	length := uint(len(files_a))
 	if length < threshold {
 		return 0, nil
 	}
@@ -76,7 +79,7 @@ func compactLevel(level int, index_dir string, threshold int) (int, error) {
 				fbuf[len(fbuf)] = sizedfn.filename
 				size += sizedfn.size
 				//delete(files, i)
-				if len(fbuf) >= threshold {
+				if uint(len(fbuf)) >= threshold {
 					break
 				}
 			} else {
@@ -120,7 +123,7 @@ func (s bySizeReversed) Less(i, j int) bool {
 	return s.sizedFilenames[i].size > s.sizedFilenames[j].size
 }
 
-func mergeCdbs(dest_cdb_fn string, source_cdb_files []string, level int, threshold int, move bool) error {
+func mergeCdbs(dest_cdb_fn string, source_cdb_files []string, level uint, threshold uint, move bool) error {
 	cw, err := cdb.NewWriter(dest_cdb_fn)
 	defer cw.Close()
 	if err != nil {
@@ -136,7 +139,7 @@ func mergeCdbs(dest_cdb_fn string, source_cdb_files []string, level int, thresho
 			//FIXME: store only the relative path?
 			cw.PutPair(book_id, StrToBytes(sfn[:-4]))
 		} else {
-			books = make(map[string]string, threshold^level)
+			books = make(map[string]string, threshold << (3 * level))
 		}
 		sfh, err := os.Open(sfn)
 		if err != nil {
