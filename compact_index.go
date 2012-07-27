@@ -12,7 +12,10 @@ import (
 	"time"
 )
 
-const MAX_CDB_SIZE = (1 << 31) - 1
+const (
+	MIN_CDB_SIZE = 2048
+	MAX_CDB_SIZE = (1 << 31) - 1
+	)
 
 //Compact compacts the index cdbs
 func CompactIndices(realm string, level uint) error {
@@ -43,27 +46,29 @@ func compactLevel(level uint, index_dir string, threshold uint) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	length := uint(len(files_a))
+	files := make(sizedFilenames, len(files_a) >> 1)
+	for _, fn := range files_a {
+		if fn == "" {
+			continue
+		}
+		fsize := fileSize(fn)
+		if fsize > MIN_CDB_SIZE {
+			files = append(files, sizedFilename{fn, fsize})
+		}
+	}
+	length := uint(len(files))
 	if length < threshold {
 		return 0, nil
 	}
-	files := make(sizedFilenames, length)
-	j := 0
-	for _, fn := range files_a {
-		fsize := fileSize(fn)
-		if fsize > 0 {
-			files[j] = sizedFilename{fn, fsize}
-			j++
-		}
-	}
+	logger.Printf("files=%s", files)
 	sort.Sort(bySizeReversed{files})
 	dest_dir := index_dir + "/" + fmt.Sprintf("L%02d", level+1)
-	lskip := 0
-	for lskip < len(files) {
+	lskip := uint(0)
+	for lskip < length {
 		fbuf := make([]string, threshold)
 		j := 0
 		size := int64(0)
-		askip := 0
+		askip := uint(0)
 		for i, sizedfn := range files[lskip:] {
 			if size+sizedfn.size < MAX_CDB_SIZE {
 				fbuf[j] = sizedfn.filename
@@ -75,12 +80,12 @@ func compactLevel(level uint, index_dir string, threshold uint) (int, error) {
 				}
 			} else {
 				if askip == 0 {
-					askip = i
+					askip = uint(i)
 				}
 			}
 		}
 		if askip == 0 {
-			askip = len(fbuf)
+			askip = uint(len(fbuf))
 		}
 		lskip += askip
 
@@ -128,11 +133,13 @@ func mergeCdbs(dest_cdb_fn string, source_cdb_files []string, level uint, thresh
 		}
 		if level == 0 {
 			book_id = StrToBytes(fmt.Sprintf("/%d", booknum))
+			if book_id[0] != '/' {
+				logger.Panicf("book_id=%s not starts with /??", book_id)
+			}
 			booknum++
 			//FIXME: store only the relative path?
-			logger.Printf("sfn=%s", sfn)
-			logger.Printf("sfn=%s", sfn[:len(sfn)-4])
-			cw.PutPair(book_id, StrToBytes(sfn[:len(sfn)-4]))
+			logger.Printf("put(%s,%s)", book_id, sfn)
+			cw.PutPair(book_id, StrToBytes(filepath.Base(sfn[:len(sfn)-4])))
 		} else {
 			books = make(map[string]string, threshold<<(3*level))
 		}
@@ -142,12 +149,15 @@ func mergeCdbs(dest_cdb_fn string, source_cdb_files []string, level uint, thresh
 		}
 		cr := make(chan cdb.Element, 1)
 		go cdb.DumpToChan(cr, sfh)
+		logger.Printf("Dumping %s", sfh)
 		for {
 			elt, ok := <-cr
 			if !ok {
 				break
 			}
+			//logger.Printf("elt=%s", elt)
 			if level == 0 {
+				//logger.Printf("put(%s,%s)", elt.Key, book_id)
 				cw.PutPair(elt.Key, book_id)
 			} else {
 				if elt.Key[0] == '/' {
@@ -155,10 +165,12 @@ func mergeCdbs(dest_cdb_fn string, source_cdb_files []string, level uint, thresh
 					books[BytesToStr(elt.Key)] = bs
 					book_id = StrToBytes(bs)
 					booknum++
+					logger.Printf("put(%s,%s)", book_id, elt.Data)
 					cw.PutPair(book_id, elt.Data)
 				} else {
 					if _, ok := books[BytesToStr(elt.Data)]; !ok {
-						logger.Panicf("unknown book %s", elt.Data)
+						logger.Panicf("level %d, unknown book %s of %s from %s (known: %+v)",
+							level, elt.Data, elt.Key, sfh.Name(), books)
 					}
 					cw.PutPair(elt.Key, StrToBytes(books[BytesToStr(elt.Data)]))
 				}
