@@ -12,7 +12,7 @@ func initConfig() {
 		if err != nil {
 			panic(err)
 		}
-		_, err = fh.WriteString("[dirs]\nstaging = /tmp/aostor/staging\nindex = /tmp/aostor/ndx\n\n[index]\nthreshold = 2")
+		_, err = fh.WriteString(TestConfig)
 		if err != nil {
 			panic(err)
 		}
@@ -28,7 +28,7 @@ func testPut() (string, error) {
 		logger.Printf("cannot open %s: %s", fn, err)
 		return "", err
 	}
-	return Put(info, data)
+	return Put("test", info, data)
 }
 
 func TestPut(c *testing.T) {
@@ -44,7 +44,7 @@ func TestGet(c *testing.T) {
 	if err != nil {
 		c.Fatalf("cannot put: %s", err)
 	}
-	info, _, err := Get(key)
+	info, _, err := Get("test", key)
 	if err != nil {
 		c.Fatalf("cannot get %s: %s", key, err)
 	}

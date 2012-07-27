@@ -7,17 +7,13 @@ import (
 	"os"
 )
 
-func Put(info Info, data io.Reader) (key string, err error) {
-	conf, err := ReadConf("")
-	if err != nil {
-		return
-	}
-	staging_dir, err := conf.GetString("dirs", "staging")
+func Put(realm string, info Info, data io.Reader) (key string, err error) {
+	conf, err := ReadConf("", realm)
 	if err != nil {
 		return
 	}
 
-	if info.Key == "" || fileExists(staging_dir+"/"+key+SuffInfo) {
+	if info.Key == "" || fileExists(conf.StagingDir+"/"+key+SuffInfo) {
 		info.Key, err = StrUUID()
 		if err != nil {
 			return
@@ -29,7 +25,7 @@ func Put(info Info, data io.Reader) (key string, err error) {
 	key = info.Key
 	info.Ipos, info.Dpos = 0, 0
 
-	ifh, err := os.OpenFile(staging_dir+"/"+key+SuffInfo, os.O_WRONLY|os.O_CREATE, 0640)
+	ifh, err := os.OpenFile(conf.StagingDir+"/"+key+SuffInfo, os.O_WRONLY|os.O_CREATE, 0640)
 	if err != nil {
 		return
 	}
@@ -38,7 +34,7 @@ func Put(info Info, data io.Reader) (key string, err error) {
 	if err != nil {
 		return
 	}
-	dfh, err := os.OpenFile(staging_dir+"/"+key+SuffData+"gz", os.O_WRONLY|os.O_CREATE, 0640)
+	dfh, err := os.OpenFile(conf.StagingDir+"/"+key+SuffData+"gz", os.O_WRONLY|os.O_CREATE, 0640)
 	if err != nil {
 		return
 	}

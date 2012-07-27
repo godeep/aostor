@@ -14,28 +14,20 @@ import (
 	"strings"
 )
 
-func Get(uuid string) (info Info, reader io.Reader, err error) {
-	conf, err := ReadConf("")
-	if err != nil {
-		return
-	}
-	staging_dir, err := conf.GetString("dirs", "staging")
+func Get(realm string, uuid string) (info Info, reader io.Reader, err error) {
+	conf, err := ReadConf("", realm)
 	if err != nil {
 		return
 	}
 	// L00
-	info, reader, err = findAtStaging(uuid, staging_dir)
+	info, reader, err = findAtStaging(uuid, conf.StagingDir)
 	if err == nil {
 		return
 	} else if err != io.EOF {
 		return
 	}
-	index_base, err := conf.GetString("dirs", "index")
-	if err != nil {
-		return
-	}
 
-	info, reader, err = findAtLevelZero(uuid, index_base)
+	info, reader, err = findAtLevelZero(uuid, conf.IndexDir)
 	if err == nil {
 		return
 	} else if err != io.EOF {
@@ -43,18 +35,14 @@ func Get(uuid string) (info Info, reader io.Reader, err error) {
 	}
 	var tar_uuid string
 	for level := 1; level < 10 && err == io.EOF; level++ {
-		tar_uuid, err = findInCdbs(uuid, index_base+fmt.Sprintf("/L%02d", level))
+		tar_uuid, err = findInCdbs(uuid, conf.IndexDir+fmt.Sprintf("/L%02d", level))
 	}
-	if err != nil {
-		return
-	}
-	tar_base, err := conf.GetString("dirs", "tar_base")
 	if err != nil {
 		return
 	}
 	if tar_uuid != "" {
 		var tarfn string
-		tarfn = findTar(tar_uuid, tar_base)
+		tarfn = findTar(tar_uuid, conf.TarDir)
 		info, reader, err = GetFromCdb(uuid, tarfn+".cdb")
 	}
 	return

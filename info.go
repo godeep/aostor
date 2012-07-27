@@ -76,7 +76,7 @@ func (info *Info) NewReader() (io.Reader, int) {
 	i := 0
 	if info.Key != "" {
 		info.Add(InfoPref+"Id", info.Key)
-		logger.Printf("added %s => %+v info.m nil? %s", info.Key, info.m, info.m == nil)
+		//logger.Printf("added %s => %+v info.m nil? %s", info.Key, info.m, info.m == nil)
 	}
 	if info.Ipos > 0 {
 		info.Add(InfoPref+"Ipos", fmt.Sprintf("%d", info.Ipos))
@@ -93,7 +93,7 @@ func (info *Info) NewReader() (io.Reader, int) {
 		//}
 	}
 	text := strings.Join(buf, "\n")
-	logger.Printf("info[%d]=%s", len(text), text)
+	//logger.Printf("info[%d]=%s", len(text), text)
 	if len(text) <= 2 {
 		logger.Panicf("empty info (key=%s m=%+v)", info.Key, info.m)
 	}

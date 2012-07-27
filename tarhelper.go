@@ -132,7 +132,7 @@ func FindTarEnd(r io.ReadSeeker, last_known uint64) (pos uint64, err error) {
 	if p, err = r.Seek(0, 1); err != nil {
 		logger.Panicf("cannot seek %s: %s", r, err)
 	}
-	logger.Printf("p=%d last_known=%d", p, last_known)
+	//logger.Printf("p=%d last_known=%d", p, last_known)
 	if last_known > uint64(p) {
 		p, err = r.Seek(-BS, 2)
 		if uint64(p) > last_known {
@@ -151,7 +151,7 @@ func FindTarEnd(r io.ReadSeeker, last_known uint64) (pos uint64, err error) {
 			// p, err = r.Seek(0, 1); logger.Printf("pos=%d", p)
 		}
 	}
-	logger.Printf("end of %s: %d", r, p)
+	//logger.Printf("end of %s: %d", r, p)
 	return uint64(p), err
 }
 
@@ -167,7 +167,7 @@ func OpenForAppend(tarfn string) (
 		logger.Printf("cannot stat %s: %s", fh, err)
 		return
 	}
-	logger.Printf("%s.Size=%d", tarfn, fi.Size())
+	//logger.Printf("%s.Size=%d", tarfn, fi.Size())
 	var p int64
 	if fi.Size() >= 2*BS {
 		if pos, err = FindTarEnd(fh, tarEndCache[tarfn]); err == nil {

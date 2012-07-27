@@ -15,25 +15,14 @@ import (
 const MAX_CDB_SIZE = (1 << 31) - 1
 
 //Compact compacts the index cdbs
-func CompactIndices(level uint) error {
-	conf, err := ReadConf("")
+func CompactIndices(realm string, level uint) error {
+	conf, err := ReadConf("", realm)
 	if err != nil {
 		return err
-	}
-	index_dir, err := conf.GetString("dirs", "index")
-	if err != nil {
-		return err
-	}
-	var threshold uint
-	thres, err := conf.GetInt("threshold", "index")
-	if err != nil {
-		threshold = uint(10)
-	} else {
-		threshold = uint(thres)
 	}
 	var n int
 	for level := uint(0); level < 10; level++ {
-		n, err = compactLevel(level, index_dir, threshold)
+		n, err = compactLevel(level, conf.IndexDir, conf.IndexThreshold)
 		if err != nil {
 			return err
 		} else if n == 0 {
@@ -139,7 +128,7 @@ func mergeCdbs(dest_cdb_fn string, source_cdb_files []string, level uint, thresh
 			//FIXME: store only the relative path?
 			cw.PutPair(book_id, StrToBytes(sfn[:-4]))
 		} else {
-			books = make(map[string]string, threshold << (3 * level))
+			books = make(map[string]string, threshold<<(3*level))
 		}
 		sfh, err := os.Open(sfn)
 		if err != nil {
@@ -196,3 +185,4 @@ func fileSize(fn string) int64 {
 	}
 	return -1
 }
+
