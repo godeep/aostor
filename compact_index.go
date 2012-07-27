@@ -21,7 +21,7 @@ func CompactIndices(realm string, level uint) error {
 		return err
 	}
 	var n int
-	for level := uint(0); level < 10; level++ {
+	for ; level < 10; level++ {
 		n, err = compactLevel(level, conf.IndexDir, conf.IndexThreshold)
 		if err != nil {
 			return err
@@ -52,7 +52,7 @@ func compactLevel(level uint, index_dir string, threshold uint) (int, error) {
 	for _, fn := range files_a {
 		fsize := fileSize(fn)
 		if fsize > 0 {
-			files[j] = &sizedFilename{fn, fsize}
+			files[j] = sizedFilename{fn, fsize}
 			j++
 		}
 	}
@@ -61,11 +61,13 @@ func compactLevel(level uint, index_dir string, threshold uint) (int, error) {
 	lskip := 0
 	for lskip < len(files) {
 		fbuf := make([]string, threshold)
+		j := 0
 		size := int64(0)
 		askip := 0
 		for i, sizedfn := range files[lskip:] {
 			if size+sizedfn.size < MAX_CDB_SIZE {
-				fbuf[len(fbuf)] = sizedfn.filename
+				fbuf[j] = sizedfn.filename
+				j++
 				size += sizedfn.size
 				//delete(files, i)
 				if uint(len(fbuf)) >= threshold {
@@ -100,7 +102,7 @@ type sizedFilename struct {
 	filename string
 	size     int64
 }
-type sizedFilenames []*sizedFilename
+type sizedFilenames []sizedFilename
 
 func (s sizedFilenames) Len() int           { return len(s) }
 func (s sizedFilenames) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
@@ -114,7 +116,6 @@ func (s bySizeReversed) Less(i, j int) bool {
 
 func mergeCdbs(dest_cdb_fn string, source_cdb_files []string, level uint, threshold uint, move bool) error {
 	cw, err := cdb.NewWriter(dest_cdb_fn)
-	defer cw.Close()
 	if err != nil {
 		return err
 	}
@@ -122,11 +123,16 @@ func mergeCdbs(dest_cdb_fn string, source_cdb_files []string, level uint, thresh
 	var book_id []byte
 	var books map[string]string
 	for _, sfn := range source_cdb_files {
+		if sfn == "" {
+			continue
+		}
 		if level == 0 {
 			book_id = StrToBytes(fmt.Sprintf("/%d", booknum))
 			booknum++
 			//FIXME: store only the relative path?
-			cw.PutPair(book_id, StrToBytes(sfn[:-4]))
+			logger.Printf("sfn=%s", sfn)
+			logger.Printf("sfn=%s", sfn[:len(sfn)-4])
+			cw.PutPair(book_id, StrToBytes(sfn[:len(sfn)-4]))
 		} else {
 			books = make(map[string]string, threshold<<(3*level))
 		}
@@ -166,6 +172,9 @@ func mergeCdbs(dest_cdb_fn string, source_cdb_files []string, level uint, thresh
 	}
 	if move {
 		for _, fn := range source_cdb_files {
+			if fn == "" {
+				continue
+			}
 			err = os.Remove(fn)
 			if err != nil {
 				return err
@@ -185,4 +194,3 @@ func fileSize(fn string) int64 {
 	}
 	return -1
 }
-

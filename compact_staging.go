@@ -20,7 +20,7 @@ func CompactStaging(realm string) error {
 		return err
 	}
 	size := uint64(0)
-	for _, fn := range(files) {
+	for _, fn := range files {
 		fs := fileSize(fn)
 		if fs > 0 {
 			size += uint64(fs)
@@ -29,8 +29,13 @@ func CompactStaging(realm string) error {
 				if err != nil {
 					return err
 				}
-				CreateTar(conf.TarDir + "/" + realm + "-" + strNow() + "-" + uuid + ".tar",
-					conf.StagingDir, true)
+				tarfn := realm + "-" + strNow()[:15] + "-" + uuid + ".tar"
+				if err = CreateTar(conf.TarDir+"/"+tarfn, conf.StagingDir, true); err != nil {
+					return err
+				}
+				if err = os.Symlink(conf.TarDir+"/"+tarfn+".cdb", conf.IndexDir+"/L00/"+tarfn+".cdb"); err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -156,7 +161,7 @@ func CreateTar(tarfn string, dirname string, move bool) error {
 		logger.Printf("remaining files: %+v", buf)
 	}
 	if move && err == nil {
-		for _, fn := range(tbd) {
+		for _, fn := range tbd {
 			os.Remove(fn)
 		}
 	}

@@ -59,5 +59,11 @@ func TestCompact(c *testing.T) {
 			c.Fatalf("cannot put: %s", err)
 		}
 	}
-	logger.Printf("MAX_CDB_SIZE: %d", MAX_CDB_SIZE)
+	//logger.Printf("MAX_CDB_SIZE: %d", MAX_CDB_SIZE)
+	if err := CompactStaging("test"); err != nil {
+		c.Fatalf("compact staging error: %s", err)
+	}
+	if err := CompactIndices("test", 0); err != nil {
+		c.Fatalf("compact indices error: %s", err)
+	}
 }
