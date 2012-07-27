@@ -7,9 +7,9 @@ import (
 	"github.com/tgulacsi/go-cdb"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
-	"sort"
 )
 
 const MAX_CDB_SIZE = 2 >> 10 >> 3 >> 1
@@ -57,7 +57,7 @@ func compactLevel(level int, index_dir string, threshold int) (int, error) {
 	}
 	files := make(sizedFilenames, length)
 	j := 0
-	for _, fn := range(files_a) {
+	for _, fn := range files_a {
 		fsize := fileSize(fn)
 		if fsize > 0 {
 			files[j] = &sizedFilename{fn, fsize}
@@ -67,12 +67,12 @@ func compactLevel(level int, index_dir string, threshold int) (int, error) {
 	sort.Sort(bySizeReversed{files})
 	dest_dir := index_dir + "/" + fmt.Sprintf("L%02d", level+1)
 	lskip := 0
-	for ; lskip < len(files); {
+	for lskip < len(files) {
 		fbuf := make([]string, threshold)
 		size := int64(0)
 		askip := 0
-		for i, sizedfn := range(files[lskip:]) {
-			if size + sizedfn.size < MAX_CDB_SIZE {
+		for i, sizedfn := range files[lskip:] {
+			if size+sizedfn.size < MAX_CDB_SIZE {
 				fbuf[len(fbuf)] = sizedfn.filename
 				size += sizedfn.size
 				//delete(files, i)
@@ -106,14 +106,16 @@ func compactLevel(level int, index_dir string, threshold int) (int, error) {
 
 type sizedFilename struct {
 	filename string
-	size int64
+	size     int64
 }
 type sizedFilenames []*sizedFilename
-func (s sizedFilenames) Len() int { return len(s) }
-func (s sizedFilenames) Swap(i, j int) { s[i], s[j] = s[j], s[i] }
+
+func (s sizedFilenames) Len() int           { return len(s) }
+func (s sizedFilenames) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
 func (s sizedFilenames) Less(i, j int) bool { return s[i].size < s[j].size }
 
-type bySizeReversed struct { sizedFilenames }
+type bySizeReversed struct{ sizedFilenames }
+
 func (s bySizeReversed) Less(i, j int) bool {
 	return s.sizedFilenames[i].size > s.sizedFilenames[j].size
 }

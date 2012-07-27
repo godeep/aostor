@@ -23,6 +23,9 @@ func Put(info Info, data io.Reader) (key string, err error) {
 			return
 		}
 	}
+	if info.Key == "" {
+		logger.Panicf("empty key!")
+	}
 	key = info.Key
 	info.Ipos, info.Dpos = 0, 0
 

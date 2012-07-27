@@ -85,7 +85,7 @@ func fileExists(fn string) bool {
 		fh.Close()
 		return true
 	} else {
-		return os.IsNotExist(err)
+		return !os.IsNotExist(err)
 	}
 	return false
 }

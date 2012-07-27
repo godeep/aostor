@@ -58,27 +58,17 @@ func TestCompress(c *testing.T) {
 }
 
 func TestAppendFile(c *testing.T) {
-	tarfn := os.TempDir() + "/tarhelper_test.tar"
-	fi, err := os.Stat("tarhelper_test.go")
-	oldsize := fi.Size()
-	uuid, err := StrUUID()
+	tarfn, oldsize, info, fn, err := initAppend()
 	if err != nil {
-		c.Fatalf("cannot generate uuid: %s", err)
+		c.Fatal()
 	}
-	info := Info{m: map[string]string{InfoPref + "Id": uuid}}
-	i := os.Getpid()%10 + 1
-	buf := make([]byte, i)
-	var n int
-	if n, err = rand.Read(buf); err != nil {
-		log.Printf("cannot read random: %s", err)
-	}
-	info.Add("X-Gibberish", fmt.Sprintf("%x", buf[:n]))
-	pos, err := AppendFile(tarfn, info, fi.Name(), "gzip")
+	pos, err := AppendFile(tarfn, info, fn, "gzip")
 	if err != nil {
 		c.Fatalf("appending to %s: %s", tarfn, err)
 	}
 	log.Printf("pos=%d", pos)
-	if fi, err = os.Stat(tarfn); err != nil {
+	fi, err := os.Stat(tarfn)
+	if err != nil {
 		c.Fatalf("not exists? %s", err)
 	}
 	newsize := fi.Size()
@@ -88,8 +78,37 @@ func TestAppendFile(c *testing.T) {
 	}
 }
 
-func TestManyAppend(c *testing.T) {
-	for i := 0; i < 1000; i++ {
-		TestAppendFile(c)
+func initAppend() (tarfn string, oldsize int64, info Info, fn string, err error) {
+	tarfn = os.TempDir() + "/tarhelper_test.tar"
+	fi, err := os.Stat("tarhelper_test.go")
+	oldsize = fi.Size()
+	uuid, err := StrUUID()
+	if err != nil {
+		fmt.Printf("cannot generate uuid: %s", err)
+		return
+	}
+	info = Info{m: map[string]string{InfoPref + "Id": uuid}}
+	i := os.Getpid()%10 + 1
+	buf := make([]byte, i)
+	var n int
+	if n, err = rand.Read(buf); err != nil {
+		log.Printf("cannot read random: %s", err)
+	}
+	info.Add("X-Gibberish", fmt.Sprintf("%x", buf[:n]))
+	return
+}
+
+func BenchmarkAppendFile(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+		tarfn, _, info, fn, err := initAppend()
+		if err != nil {
+			b.Fatal()
+		}
+		b.StartTimer()
+		_, err = AppendFile(tarfn, info, fn, "gzip")
+		if err != nil {
+			b.Fatalf("appending to %s: %s", tarfn, err)
+		}
 	}
 }

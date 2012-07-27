@@ -19,7 +19,7 @@ type Info struct {
 	m          map[string]string
 }
 
-func (info Info) Get(key string) string {
+func (info *Info) Get(key string) string {
 	ret, ok := info.m[http.CanonicalHeaderKey(key)]
 	if !ok {
 		for k := range info.m {
@@ -33,9 +33,12 @@ func (info Info) Get(key string) string {
 	}
 	return ret
 }
-func (info Info) Add(key string, val string) {
+func (info *Info) Add(key string, val string) {
 	k := http.CanonicalHeaderKey(key)
 	val = strings.TrimSpace(val)
+	if info.m == nil {
+		info.m = make(map[string]string, 1)
+	}
 	info.m[k] = val
 	if val != "" && strings.HasPrefix(k, InfoPref) {
 		switch k[len(InfoPref):] {
@@ -53,7 +56,7 @@ func ReadInfo(r io.Reader) (info Info, err error) {
 	rb := bufio.NewReader(r)
 	var key, val string
 	if info.m == nil {
-		info.m = make(map[string]string)
+		info.m = make(map[string]string, 3)
 	}
 	for err == nil {
 		if key, err = rb.ReadString(':'); err == nil {
@@ -68,11 +71,12 @@ func ReadInfo(r io.Reader) (info Info, err error) {
 	return
 }
 
-func (info Info) NewReader() (io.Reader, int) {
+func (info *Info) NewReader() (io.Reader, int) {
 	buf := make([]string, len(info.m)+3)
 	i := 0
 	if info.Key != "" {
 		info.Add(InfoPref+"Id", info.Key)
+		logger.Printf("added %s => %+v info.m nil? %s", info.Key, info.m, info.m == nil)
 	}
 	if info.Ipos > 0 {
 		info.Add(InfoPref+"Ipos", fmt.Sprintf("%d", info.Ipos))
@@ -80,17 +84,22 @@ func (info Info) NewReader() (io.Reader, int) {
 	if info.Dpos > 0 {
 		info.Add(InfoPref+"Dpos", fmt.Sprintf("%d", info.Dpos))
 	}
+	//length := 0
 	for k, v := range info.m {
-		if !strings.HasPrefix(k, InfoPref) || len(k) > len(InfoPref) {
+		//if !strings.HasPrefix(k, InfoPref) || len(k) > len(InfoPref) {
 			buf[i] = fmt.Sprintf("%s: %s", http.CanonicalHeaderKey(k), v)
+			//length += len(buf[i]) + 1
 			i++
-		}
+		//}
 	}
 	text := strings.Join(buf, "\n")
 	logger.Printf("info[%d]=%s", len(text), text)
+	if len(text) <= 2 {
+		logger.Panicf("empty info (key=%s m=%+v)", info.Key, info.m)
+	}
 	return strings.NewReader(text), len(text)
 }
-func (info Info) Bytes() []byte {
+func (info *Info) Bytes() []byte {
 	r, _ := info.NewReader()
 	ret, err := ioutil.ReadAll(r)
 	if err != nil {
