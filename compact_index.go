@@ -15,7 +15,7 @@ import (
 const (
 	MIN_CDB_SIZE = 2048
 	MAX_CDB_SIZE = (1 << 31) - 1
-	)
+)
 
 //Compact compacts the index cdbs
 func CompactIndices(realm string, level uint) error {
@@ -46,18 +46,18 @@ func compactLevel(level uint, index_dir string, threshold uint) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	files := make(sizedFilenames, len(files_a) >> 1)
+	files := make(sizedFilenames, 0)
 	for _, fn := range files_a {
 		if fn == "" {
 			continue
 		}
 		fsize := fileSize(fn)
 		if fsize > MIN_CDB_SIZE {
-			files = append(files, sizedFilename{fn, fsize})
+			files = append(files, &sizedFilename{fn, fsize})
 		}
 	}
 	length := uint(len(files))
-	if length < threshold {
+	if length <= threshold {
 		return 0, nil
 	}
 	logger.Printf("files=%s", files)
@@ -93,7 +93,7 @@ func compactLevel(level uint, index_dir string, threshold uint) (int, error) {
 		if err != nil {
 			return 0, err
 		}
-		err = mergeCdbs(dest_dir+"/"+strNow()+"-"+uuid+".cdb", fbuf,
+		err = mergeCdbs(dest_dir+"/"+strNow()[:15]+"-"+uuid+".cdb", fbuf,
 			level, threshold, true)
 		if err != nil {
 			return 0, err
@@ -107,7 +107,7 @@ type sizedFilename struct {
 	filename string
 	size     int64
 }
-type sizedFilenames []sizedFilename
+type sizedFilenames []*sizedFilename
 
 func (s sizedFilenames) Len() int           { return len(s) }
 func (s sizedFilenames) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
@@ -116,10 +116,14 @@ func (s sizedFilenames) Less(i, j int) bool { return s[i].size < s[j].size }
 type bySizeReversed struct{ sizedFilenames }
 
 func (s bySizeReversed) Less(i, j int) bool {
+	fmt.Sprintf("i=%d, j=%d, len=%d", i, j, len(s.sizedFilenames))
 	return s.sizedFilenames[i].size > s.sizedFilenames[j].size
 }
 
 func mergeCdbs(dest_cdb_fn string, source_cdb_files []string, level uint, threshold uint, move bool) error {
+	if uint(len(source_cdb_files)) < threshold {
+		return nil
+	}
 	cw, err := cdb.NewWriter(dest_cdb_fn)
 	if err != nil {
 		return err
@@ -127,8 +131,9 @@ func mergeCdbs(dest_cdb_fn string, source_cdb_files []string, level uint, thresh
 	booknum := 0
 	var book_id []byte
 	var books map[string]string
+	tbd := make([]string, 0)
 	for _, sfn := range source_cdb_files {
-		if sfn == "" {
+		if sfn == "" || !fileExists(sfn) {
 			continue
 		}
 		if level == 0 {
@@ -177,16 +182,17 @@ func mergeCdbs(dest_cdb_fn string, source_cdb_files []string, level uint, thresh
 			}
 		}
 		sfh.Close()
+		if move {
+			tbd = append(tbd, sfn)
+		}
 	}
 	cw.Close()
 	if !fileExists(dest_cdb_fn) {
 		return errors.New("cdb " + dest_cdb_fn + " not exists!")
 	}
 	if move {
-		for _, fn := range source_cdb_files {
-			if fn == "" {
-				continue
-			}
+		for _, fn := range tbd {
+			logger.Printf("deleting %s", fn)
 			err = os.Remove(fn)
 			if err != nil {
 				return err

@@ -83,7 +83,7 @@ func CreateTar(tarfn string, dirname string, move bool) error {
 		go cdbMake(c, cfh, ir)
 	*/
 	c := make(chan cdb.Element, 1)
-	d := make(chan error, 0)
+	d := make(chan error, 1)
 	go cdb.MakeFromChan(cfh, c, d)
 
 	var (
@@ -147,7 +147,7 @@ func CreateTar(tarfn string, dirname string, move bool) error {
 			}
 		}
 	}
-	c <- cdb.Element{}
+	close(c)
 	// iw.Close()
 	if err != nil {
 		fmt.Printf("error: %s", err)
