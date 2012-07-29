@@ -51,7 +51,7 @@ func ReadConf(fn string, realm string) (Config, error) {
 	if err != nil {
 		return c, err
 	}
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 2; i++ {
 		dn := c.IndexDir + "/" + fmt.Sprintf("L%02d", i)
 		if !fileExists(dn) {
 			if err = os.MkdirAll(dn, 0755); err != nil {

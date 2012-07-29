@@ -60,7 +60,7 @@ func TestCompress(c *testing.T) {
 func TestAppendFile(c *testing.T) {
 	tarfn, oldsize, info, fn, err := initAppend()
 	if err != nil {
-		c.Fatal()
+		c.Fatalf("cannot initialize: %s", err)
 	}
 	pos, err := AppendFile(tarfn, info, fn, "gzip")
 	if err != nil {
@@ -103,7 +103,7 @@ func BenchmarkAppendFile(b *testing.B) {
 		b.StopTimer()
 		tarfn, _, info, fn, err := initAppend()
 		if err != nil {
-			b.Fatal()
+			b.Fatalf("cannot initialize: %s", err)
 		}
 		b.StartTimer()
 		_, err = AppendFile(tarfn, info, fn, "gzip")
