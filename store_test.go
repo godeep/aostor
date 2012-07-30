@@ -9,7 +9,7 @@ import (
 )
 
 func initConfig() {
-	CheckMerge = true
+	checkMerge = true
 	if !fileExists(ConfigFile) {
 		logger.Printf("config: %s not exists?", ConfigFile)
 		fh, err := os.OpenFile(ConfigFile, os.O_CREATE|os.O_WRONLY, 0640)

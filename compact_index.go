@@ -17,7 +17,7 @@ const (
 	MAX_CDB_SIZE = (1 << 31) - 1
 )
 
-var CheckMerge bool = false
+var checkMerge bool = false
 
 //Compact compacts the index cdbs
 func CompactIndices(realm string, level uint) error {
@@ -149,7 +149,7 @@ func mergeCdbs(dest_cdb_fn string, source_cdb_files []string, level uint, thresh
 	var books map[string]string
 	var check map[string]string
 	var lengths map[string]int
-	if CheckMerge {
+	if checkMerge {
 		check = make(map[string]string, 1024)
 		lengths = make(map[string]int, 10)
 	}
@@ -188,7 +188,7 @@ func mergeCdbs(dest_cdb_fn string, source_cdb_files []string, level uint, thresh
 			if level == 0 {
 				//logger.Printf("put(%s,%s)", elt.Key, book_id)
 				cw.PutPair(elt.Key, book_id)
-				if CheckMerge {
+				if checkMerge {
 					check[BytesToStr(elt.Key)] = sfn
 				}
 				n++
@@ -206,7 +206,7 @@ func mergeCdbs(dest_cdb_fn string, source_cdb_files []string, level uint, thresh
 							level, elt.Data, elt.Key, sfh.Name(), books)
 					}
 					cw.PutPair(elt.Key, StrToBytes(books[BytesToStr(elt.Data)]))
-					if CheckMerge {
+					if checkMerge {
 						check[BytesToStr(elt.Key)] = sfn
 					}
 					n++
@@ -217,7 +217,7 @@ func mergeCdbs(dest_cdb_fn string, source_cdb_files []string, level uint, thresh
 		if move {
 			tbd = append(tbd, sfn)
 		}
-		if CheckMerge {
+		if checkMerge {
 			lengths[sfn] = n
 		}
 	}
@@ -225,7 +225,7 @@ func mergeCdbs(dest_cdb_fn string, source_cdb_files []string, level uint, thresh
 	if !fileExists(dest_cdb_fn) {
 		return errors.New("cdb " + dest_cdb_fn + " not exists!")
 	}
-	if CheckMerge {
+	if checkMerge {
 		fh, err := os.Open(dest_cdb_fn)
 		if err != nil {
 			logger.Panicf("cannot open %s", dest_cdb_fn)

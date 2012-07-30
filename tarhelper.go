@@ -1,4 +1,3 @@
-//!/usr/bin/env go
 package aostor
 
 import (
@@ -25,10 +24,10 @@ var (
 var logger = log.New(os.Stderr, "tarhelper ", log.LstdFlags|log.Lshortfile)
 
 const (
-	SuffInfo = "!"
-	SuffLink = "@"
-	SuffData = "#"
-	BS       = 512
+	SuffInfo = "!" // suffix of info file
+	SuffLink = "@" // suffix of link
+	SuffData = "#" // suffix of data file (+ compression type)
+	BS       = 512 // tar blocksize
 )
 
 var tarEndCache = map[string]uint64{}

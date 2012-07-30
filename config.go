@@ -10,8 +10,8 @@ import (
 
 const (
 	DefaultConfigFile     = "aostor.ini"
-	DefaultTarThreshold   = 1000 * (1 << 20)
-	DefaultIndexThreshold = 10
+	DefaultTarThreshold   = 1000 * (1 << 20) // 1000Mb
+	DefaultIndexThreshold = 10               // How many index cdb should be merged
 	TestConfig            = `[dirs]
 base = /tmp/aostor
 staging = %(base)s/#(realm)s/staging

@@ -36,3 +36,6 @@ Then the L1 directory is checked: if then number of cdbs are bigger than the thr
 If this happened, then the L(n+1) dir is checked: if the number of cdbs are bigger than the threshold (10), then they are merged into a new cdb in the L(n+2) directory, and these L(n+1) cdbs are deleted.
 
 CDB has a size limit of 2Gb, so the compactor must take this into account, too!
+
+
+API Docs: http://go.pkgdoc.org/github.com/tgulacsi/aostor

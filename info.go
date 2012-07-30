@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-const InfoPref = "X-Aostor-"
+const InfoPref = "X-Aostor-" // prefix of specific headers
 
 type Info struct {
 	Key        string
