@@ -1,11 +1,16 @@
 package aostor
 
 import (
+	"errors"
 	"fmt"
 	"github.com/nu7hatch/gouuid"
 	"io"
 	"os"
+	"unosoft.hu/aostor/compressor"
 )
+
+// var StoreCompressMethod = "bzip2"
+var StoreCompressMethod = "gzip"
 
 func Put(realm string, info Info, data io.Reader) (key string, err error) {
 	conf, err := ReadConf("", realm)
@@ -34,12 +39,20 @@ func Put(realm string, info Info, data io.Reader) (key string, err error) {
 	if err != nil {
 		return
 	}
-	dfh, err := os.OpenFile(conf.StagingDir+"/"+key+SuffData+"gz", os.O_WRONLY|os.O_CREATE, 0640)
+	end := compressor.ShorterMethod(StoreCompressMethod)
+	dfh, err := os.OpenFile(conf.StagingDir+"/"+key+SuffData+end,
+		os.O_WRONLY|os.O_CREATE, 0640)
 	if err != nil {
 		return
 	}
-	_, err = CompressCopy(dfh, data)
+	_, err = compressor.CompressCopy(dfh, data, StoreCompressMethod)
 	dfh.Close()
+	fs := fileSize(dfh.Name())
+	if fs <= 0 {
+		err = errors.New("Empty compressed file!")
+	} else {
+		// logger.Printf("%s size=%d", dfh.Name(), fs)
+	}
 	return
 }
 

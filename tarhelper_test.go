@@ -1,4 +1,3 @@
-//!/usr/bin/env go
 package aostor
 
 import (
@@ -11,6 +10,7 @@ import (
 	//"net/http"
 	"crypto/rand"
 	"log"
+	"unosoft.hu/aostor/compressor"
 )
 
 func TestCompress(c *testing.T) {
@@ -30,7 +30,7 @@ func TestCompress(c *testing.T) {
 	if _, err := sf.Seek(0, 0); err != nil {
 		c.Fatalf("seeking %s: %s", sf, err)
 	}
-	if cfn, err = Compress(sf, "gz"); err != nil {
+	if cfn, err = compressor.CompressToTemp(sf, "gz"); err != nil {
 		c.Fatalf("compressing %s: %s", sf, err)
 	}
 	defer os.Remove(cfn)

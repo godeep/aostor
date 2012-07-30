@@ -46,7 +46,7 @@ func CompressCopy(w io.Writer, r io.Reader, compressMethod string) (int64, error
 			return 0, err
 		}
 		defer gw.Close()
-		logger.Printf("CompressCopy copying from %s to %s", r, gw)
+		// logger.Printf("CompressCopy copying from %s to %s", r, gw)
 		return io.Copy(gw, r)
 	} else {
 		if compressMethod == "bz2" {
@@ -106,4 +106,14 @@ func ExternalDecompressCopy(dst io.Writer, src io.Reader, compressMethod string)
 		logger.Fatalf("decompressor %s error: %s", cmd, err)
 	}
 	return err
+}
+
+func ShorterMethod(name string) string {
+	switch(name) {
+	case "bzip2":
+		return "bz2"
+	case "gzip":
+		return "gz"
+	}
+	return name
 }

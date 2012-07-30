@@ -13,6 +13,7 @@ import (
 	"os/user"
 	"strings"
 	"time"
+	"unosoft.hu/aostor/compressor"
 )
 
 var (
@@ -302,19 +303,13 @@ func writeCompressed(tw *tar.Writer, fn string, info Info,
 	compressMethod string) (err error) {
 	if sfh, err := os.Open(fn); err == nil {
 		defer sfh.Close()
-		if cfn, err := Compress(sfh, compressMethod); err == nil {
+		if cfn, err := compressor.CompressToTemp(sfh, compressMethod); err == nil {
 			logger.Printf("compressed file: %s", cfn)
 			defer os.Remove(cfn)
 			if cfh, err := os.Open(cfn); err == nil {
 				if fi, err := cfh.Stat(); err == nil {
 					defer cfh.Close()
-					var end = compressMethod
-					switch end {
-					case "gzip":
-						end = "gz"
-					case "bzip2":
-						end = "bz2"
-					}
+					end := compressor.ShorterMethod(compressMethod)
 					if hdr, err := FileTarHeader(fn); err == nil {
 						hdr.Name = info.Get(InfoPref+"Id") + SuffData + end
 						hdr.Size = fi.Size()
@@ -382,27 +377,4 @@ func AppendLink(tarfn string, info Info, src string, dst string) (err error) {
 		}
 	}
 	return
-}
-
-func Compress(f *os.File, compressMethod string) (tempfn string, err error) {
-	tempfn = os.TempDir() + fmt.Sprintf("/tarhelper-%s-%d.gz", f.Name(), os.Getpid())
-	if fh, err := os.OpenFile(tempfn, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600); err == nil {
-		defer fh.Close()
-		//logger.Printf("fh=%v", fh)
-		if _, err := CompressCopy(fh, f); err != nil {
-			//logger.Printf("copied %d bytes from %v to %v", n, f, gw)
-			//} else {
-			logger.Printf("copy from %v to %v error: %s", f, fh, err)
-		}
-	}
-	return
-}
-
-func CompressCopy(w io.Writer, r io.Reader) (int64, error) {
-	gw, err := gzip.NewWriterLevel(w, flate.BestCompression)
-	if err != nil {
-		return 0, err
-	}
-	defer gw.Close()
-	return io.Copy(gw, r)
 }
