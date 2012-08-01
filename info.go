@@ -73,7 +73,7 @@ func (info *Info) SetFilename(fn string, mime string) {
 
 // copies adata from Info to http.Header
 func (info *Info) Copy(header http.Header) {
-	for k, v := range(info.m) {
+	for k, v := range info.m {
 		header.Add(k, v)
 	}
 }

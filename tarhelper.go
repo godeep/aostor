@@ -46,26 +46,41 @@ func (e *SymlinkError) Error() string {
 //   if there is a symlink at the given position
 //   - to be able to retry with the symlink
 func ReadItem(tarfn string, pos int64) (ret io.Reader, err error) {
-	if f, err := os.Open(tarfn); err == nil {
-		defer f.Close()
-		f.Seek(pos, 0)
-		tr := tar.NewReader(f)
-		if hdr, err := tr.Next(); err == nil {
-			switch {
-			case hdr.Typeflag == tar.TypeSymlink:
-				err = &SymlinkError{hdr.Linkname}
-			case hdr.Typeflag != tar.TypeReg && hdr.Typeflag != tar.TypeRegA:
-				err = NotRegularFile
-			case strings.HasSuffix(hdr.Name, SuffData+"bz2"):
-				ret = bzip2.NewReader(io.LimitReader(tr, hdr.Size))
-			case strings.HasSuffix(hdr.Name, SuffData+"gz"):
-				ret, err = gzip.NewReader(io.LimitReader(tr, hdr.Size))
-			case true:
-				ret = tr
-			}
-		}
+	f, err := os.Open(tarfn)
+	if err != nil {
+		logger.Printf("cannot open %s: %s", tarfn, err)
 	}
-	return
+	defer f.Close()
+	p, err := f.Seek(pos, 0)
+	if err != nil {
+		logger.Printf("cannot seek in %s to %d: %s", f, pos, err)
+		return nil, err
+	} else if p != pos {
+		logger.Printf("cannot seek in %s to %d: got %d", f, pos, p)
+	}
+	tr := tar.NewReader(f)
+	hdr, err := tr.Next()
+	if err != nil {
+		logger.Printf("cannot go to next tar header: %s", err)
+	}
+	//logger.Printf("ReadItem(%s, %d) hdr=%s", tarfn, pos, hdr)
+	switch {
+	case hdr.Typeflag == tar.TypeSymlink:
+		err = &SymlinkError{hdr.Linkname}
+	case hdr.Typeflag != tar.TypeReg && hdr.Typeflag != tar.TypeRegA:
+		err = NotRegularFile
+	case strings.HasSuffix(hdr.Name, SuffData+"bz2"):
+		//logger.Printf("bz2[%s] length=%d", hdr.Name, hdr.Size)
+		ret = bzip2.NewReader(io.LimitReader(tr, hdr.Size))
+	case strings.HasSuffix(hdr.Name, SuffData+"gz"):
+		//logger.Printf("gz[%s] length=%d", hdr.Name, hdr.Size)
+		ret, err = gzip.NewReader(io.LimitReader(tr, hdr.Size))
+	case true:
+		//logger.Printf("[%s] length=%d", hdr.Name, hdr.Size)
+		ret = tr
+	}
+	//logger.Printf("ret=%s err=%s", ret, err)
+	return ret, err
 }
 
 // Writes the given file into tarfn

@@ -62,12 +62,12 @@ func baseHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, fmt.Sprintf("404 Page Not Found (%s)", path), 404)
 		} else {
 			info.Copy(w.Header())
-			logger.Printf("copying from %s to %s", data, err)
+			//logger.Printf("copying from %s to %s", data, err)
 			n, err := io.Copy(w, data)
 			if err != nil {
 				logger.Printf("Error copying from %s to %s: %s", data, w, err)
 			} else {
-				logger.Printf("written %d", n)
+				logger.Printf("written %d bytes", n)
 			}
 		}
 	} else if r.Method == "POST" {
