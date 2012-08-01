@@ -276,6 +276,7 @@ func mergeCdbs(dest_cdb_fn string, source_cdb_files []string, level uint, thresh
 //Returns the size of the file, -1 on error
 func fileSize(fn string) int64 {
 	if fh, err := os.Open(fn); err == nil {
+		defer fh.Close()
 		if fi, err := fh.Stat(); err == nil {
 			return fi.Size()
 		}
