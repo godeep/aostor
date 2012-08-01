@@ -36,6 +36,28 @@ func Put(realm string, info Info, data io.Reader) (key string, err error) {
 	key = info.Key
 	info.Ipos, info.Dpos = 0, 0
 
+	end := compressor.ShorterMethod(StoreCompressMethod)
+	dfh, err := os.OpenFile(conf.StagingDir+"/"+key+SuffData+end,
+		os.O_WRONLY|os.O_CREATE, 0640)
+	if err != nil {
+		return
+	}
+	hsh := conf.ContentHashFunc()
+	cnt := &counter{}
+	w := io.MultiWriter(dfh, hsh, cnt)
+	_, err = compressor.CompressCopy(w, data, StoreCompressMethod)
+	dfh.Close()
+	fs := fileSize(dfh.Name())
+	if fs <= 0 {
+		err = errors.New("Empty compressed file!")
+	} else {
+		// logger.Printf("%s size=%d", dfh.Name(), fs)
+	}
+	info.Add(InfoPref+"Original-Size", fmt.Sprintf("%d", cnt.Num))
+	info.Add(InfoPref+"Stored-Size", fmt.Sprintf("%d", fs))
+	info.Add(InfoPref+"Content-"+conf.ContentHash,
+		fmt.Sprintf("%x", hsh.Sum(nil)))
+
 	ifh, err := os.OpenFile(conf.StagingDir+"/"+key+SuffInfo, os.O_WRONLY|os.O_CREATE, 0640)
 	if err != nil {
 		return
@@ -44,20 +66,6 @@ func Put(realm string, info Info, data io.Reader) (key string, err error) {
 	ifh.Close()
 	if err != nil {
 		return
-	}
-	end := compressor.ShorterMethod(StoreCompressMethod)
-	dfh, err := os.OpenFile(conf.StagingDir+"/"+key+SuffData+end,
-		os.O_WRONLY|os.O_CREATE, 0640)
-	if err != nil {
-		return
-	}
-	_, err = compressor.CompressCopy(dfh, data, StoreCompressMethod)
-	dfh.Close()
-	fs := fileSize(dfh.Name())
-	if fs <= 0 {
-		err = errors.New("Empty compressed file!")
-	} else {
-		// logger.Printf("%s size=%d", dfh.Name(), fs)
 	}
 	return
 }
@@ -69,4 +77,14 @@ func StrUUID() (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("%x", *k), nil
+}
+
+type counter struct {
+	Num uint64
+}
+
+func (c *counter) Write(p []byte) (n int, err error) {
+	n = len(p)
+	c.Num += uint64(n)
+	return n, nil
 }

@@ -1,6 +1,9 @@
 // Append-Only Storage HTTP server
 package main
 
+
+import _ "net/http/pprof" // pprof
+
 import (
 	"net/http"
 	"unosoft.hu/aostor"

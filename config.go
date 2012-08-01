@@ -2,8 +2,12 @@ package aostor
 
 import (
 	//"code.google.com/p/goconf/conf"
+	"crypto/sha1"
+	"crypto/sha256"
+	"crypto/sha512"
 	"fmt"
 	"github.com/kless/goconfig/config"
+	"hash"
 	"os"
 	"strings"
 )
@@ -12,7 +16,8 @@ const (
 	DefaultConfigFile     = "aostor.ini"
 	DefaultTarThreshold   = 1000 * (1 << 20) // 1000Mb
 	DefaultIndexThreshold = 10               // How many index cdb should be merged
-	DefaultHostport       = ":8431"
+	DefaultContentHash    = "sha1"
+	DefaultHostport       = ":8341"
 	TestConfig            = `[dirs]
 base = /tmp/aostor
 staging = %(base)s/#(realm)s/staging
@@ -26,10 +31,16 @@ tar = 512
 [http]
 hostport = :8431
 realms = test
+
+[hash]
+content = sha1
 `
 )
 
-var ConfigFile = DefaultConfigFile
+var (
+	ConfigFile = DefaultConfigFile
+	configs    = make(map[string]Config, 2) // configs cache
+)
 
 // configuration variables, parsed
 type Config struct {
@@ -38,11 +49,27 @@ type Config struct {
 	TarThreshold                 uint64
 	Hostport                     string
 	Realms                       []string
+	ContentHash                  string
+	ContentHashFunc              func() hash.Hash
 }
 
 // reads config file (or ConfigFile if empty), replaces every #(realm)s with the
 // given realm, if given
 func ReadConf(fn string, realm string) (Config, error) {
+	k := fn + "#" + realm
+	c, ok := configs[k]
+	if ok {
+		return c, nil
+	}
+	c, err := readConf(fn, realm)
+	if err != nil {
+		return Config{}, err
+	}
+	configs[k] = c
+	return c, nil
+}
+
+func readConf(fn string, realm string) (Config, error) {
 	var c Config
 	if fn == "" {
 		fn = ConfigFile
@@ -104,6 +131,23 @@ func ReadConf(fn string, realm string) (Config, error) {
 		logger.Printf("cannot get realms: %s", err)
 	} else {
 		c.Realms = strings.Split(realms, ",")
+	}
+
+	hash, err := conf.String("hash", "content")
+	if err != nil {
+		logger.Printf("cannot get content hash: %s", err)
+		hash = DefaultContentHash
+		err = nil
+	}
+	c.ContentHash = hash
+	switch hash {
+	case "sha512":
+		c.ContentHashFunc = sha512.New
+	case "sha256":
+		c.ContentHashFunc = sha256.New
+	default:
+		c.ContentHashFunc = sha1.New
+		c.ContentHash = "sha1"
 	}
 
 	return c, err

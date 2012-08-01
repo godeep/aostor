@@ -77,6 +77,7 @@ func TestCompact(c *testing.T) {
 	if err := CompactIndices("test", 0); err != nil {
 		c.Fatalf("compact indices error: %s", err)
 	}
+	testPut()
 }
 
 func TestCdbMerge(c *testing.T) {
