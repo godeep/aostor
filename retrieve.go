@@ -6,13 +6,13 @@ import (
 	"bytes"
 	"compress/bzip2"
 	"compress/gzip"
+	"errors"
 	"fmt"
 	"github.com/tgulacsi/go-cdb"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
-	"errors"
 )
 
 var NotFound = errors.New("Not Found")
@@ -26,7 +26,7 @@ func Get(realm string, uuid string) (info Info, reader io.Reader, err error) {
 	// L00
 	info, reader, err = findAtStaging(uuid, conf.StagingDir)
 	if err == nil {
-		logger.Printf("found at staging: %s", info)
+		//logger.Printf("found at staging: %s", info)
 		return
 	} else if !os.IsNotExist(err) {
 		logger.Printf("error searching at staging: %s", err)
@@ -35,7 +35,7 @@ func Get(realm string, uuid string) (info Info, reader io.Reader, err error) {
 
 	info, reader, err = findAtLevelZero(uuid, conf.IndexDir)
 	if err == nil {
-		logger.Printf("found at level zero: %s", info)
+		//logger.Printf("found at level zero: %s", info)
 		return
 	} else if err != io.EOF {
 		return
@@ -223,7 +223,7 @@ func FindLinkOrigin(fn string) string {
 			break
 		}
 		//logger.Printf("%s mode=%s symlink? %d", fn, fi.Mode(), fi.Mode() & os.ModeSymlink)
-		if fi.Mode() & os.ModeSymlink == 0 {
+		if fi.Mode()&os.ModeSymlink == 0 {
 			break
 		}
 		fn, err = os.Readlink(fn)

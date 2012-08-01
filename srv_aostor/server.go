@@ -52,6 +52,7 @@ func baseHandler(w http.ResponseWriter, r *http.Request) {
 	tmp := strings.SplitN(r.URL.Path, "/", 3)[1:]
 	realm, path := tmp[0], tmp[1]
 	logger.Printf("realm=%s path=%s", realm, path)
+
 	if r.Method == "GET" || r.Method == "HEAD" {
 		info, data, err := aostor.Get(realm, path)
 		if err != nil {
@@ -71,7 +72,8 @@ func baseHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	} else if r.Method == "POST" {
-		//TODO
+		r.URL.Path = "/" + realm + "/up/" + path
+		upHandler(w, r)
 	} else {
 		http.Error(w, fmt.Sprintf("403 Bad Request: unknown method %s", r.Method), 403)
 	}
@@ -80,6 +82,41 @@ func baseHandler(w http.ResponseWriter, r *http.Request) {
 
 func upHandler(w http.ResponseWriter, r *http.Request) {
 	logger.Printf("got %s", r)
+	tmp := strings.SplitN(r.URL.Path, "/", 3)[1:]
+	realm, path := tmp[0], tmp[1]
+	logger.Printf("realm=%s path=%s", realm, path)
+	if r.Method == "POST" {
+		tmp := strings.SplitN(r.URL.Path, "/", 4)[1:]
+		realm, up, path := tmp[0], "up", ""
+		if len(tmp) > 1 {
+			up = tmp[1]
+		}
+		if len(tmp) > 2 {
+			path = tmp[2]
+		}
+		logger.Printf("realm=%s path=%s up=%s", realm, path, up)
+		if up != "up" {
+			http.Error(w, "403 Bad Request: unknown path " + up, 403)
+		} else {
+			file, header, err := r.FormFile("upfile")
+			info := aostor.Info{}
+			info.CopyFrom(header.Header)
+			info.SetFilename(header.Filename, header.Header.Get("Content-Type"))
+			if err != nil {
+				http.Error(w, fmt.Sprintf("403 Bad Request: upfile missing: %s", err), 403)
+			} else {
+				key, err := aostor.Put(realm, info, file)
+				if err != nil {
+					http.Error(w, fmt.Sprintf("ERROR: %s", err), 500)
+				} else {
+					w.Header().Add(aostor.InfoPref + "Key", key)
+					w.Write(aostor.StrToBytes(key))
+				}
+			}
+		}
+	} else {
+		http.Error(w, fmt.Sprintf("403 Bad Request: unknown method %s", r.Method), 403)
+	}
 }
 
 func indexHandler(w http.ResponseWriter, r *http.Request) {

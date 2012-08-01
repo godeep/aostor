@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"mime"
 	"net/http"
+	"net/textproto"
 	"strconv"
 	"strings"
 )
@@ -75,6 +76,13 @@ func (info *Info) SetFilename(fn string, mime string) {
 func (info *Info) Copy(header http.Header) {
 	for k, v := range info.m {
 		header.Add(k, v)
+	}
+}
+
+// copies data from textproto.MIMEHeader
+func (info *Info) CopyFrom(header textproto.MIMEHeader) {
+	for k, v := range header {
+		info.Add(k, strings.Join(v, ";"))
 	}
 }
 
