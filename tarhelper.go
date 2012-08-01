@@ -41,7 +41,10 @@ func (e *SymlinkError) Error() string {
 	return "symlink found: " + e.Linkname
 }
 
-// ReadItem reads from
+// Reads from tarfn at starting at pos
+//   returns a SymplinkError with the symlink information,
+//   if there is a symlink at the given position
+//   - to be able to retry with the symlink
 func ReadItem(tarfn string, pos int64) (ret io.Reader, err error) {
 	if f, err := os.Open(tarfn); err == nil {
 		defer f.Close()
@@ -65,7 +68,7 @@ func ReadItem(tarfn string, pos int64) (ret io.Reader, err error) {
 	return
 }
 
-// writeItem writes the given io
+// Writes the given file into tarfn
 func writeItem(tarfn string, fn string) (pos uint64, err error) {
 	pos = 0
 	sfh, err := os.Open(fn)
@@ -94,6 +97,7 @@ func writeItem(tarfn string, fn string) (pos uint64, err error) {
 	return
 }
 
+// Reader + Writer + Seeker + Closer
 type ReadWriteSeekCloser interface {
 	io.ReadWriteSeeker
 	io.Closer
@@ -155,6 +159,7 @@ func FindTarEnd(r io.ReadSeeker, last_known uint64) (pos uint64, err error) {
 	return uint64(p), err
 }
 
+// Opens the tarfile for appending - seeks to the end
 func OpenForAppend(tarfn string) (
 	tw *tar.Writer, fobj ReadWriteSeekCloser, pos uint64, err error) {
 	fh, err := os.OpenFile(tarfn, os.O_RDWR|os.O_CREATE, 0640)
@@ -192,6 +197,7 @@ func OpenForAppend(tarfn string) (
 	return
 }
 
+// create tar.Header from os.FileInfo
 func Finfo2Theader(fi os.FileInfo) (hdr *tar.Header, err error) {
 	m := fi.Mode()
 	var (
@@ -220,6 +226,7 @@ func Finfo2Theader(fi os.FileInfo) (hdr *tar.Header, err error) {
 	return
 }
 
+// tar.Header for a file
 func FhandleTarHeader(fh *os.File) (hdr *tar.Header, err error) {
 	if fi, err := fh.Stat(); err == nil {
 		return Finfo2Theader(fi)
@@ -227,6 +234,7 @@ func FhandleTarHeader(fh *os.File) (hdr *tar.Header, err error) {
 	return
 }
 
+// tar.Header for a filename
 func FileTarHeader(fn string) (hdr *tar.Header, err error) {
 	if fi, err := os.Stat(fn); err == nil {
 		return Finfo2Theader(fi)
@@ -234,6 +242,7 @@ func FileTarHeader(fn string) (hdr *tar.Header, err error) {
 	return
 }
 
+// fills tar.Header missing information (uid/gid, username/groupname, times ...)
 func FillHeader(hdr *tar.Header) {
 	var cuname string
 	cuid := os.Getuid()
@@ -288,6 +297,7 @@ func WriteTar(tw *tar.Writer, hdr *tar.Header, r io.Reader) (err error) {
 	return
 }
 
+// writes the Info to the tar
 func writeInfo(tw *tar.Writer, info Info) (err error) {
 	//logger.Printf("writeInfo")
 	txt, length := info.NewReader()
@@ -299,6 +309,7 @@ func writeInfo(tw *tar.Writer, info Info) (err error) {
 	return WriteTar(tw, hdr, txt)
 }
 
+// writes compressed file to the tar
 func writeCompressed(tw *tar.Writer, fn string, info Info,
 	compressMethod string) (err error) {
 	if sfh, err := os.Open(fn); err == nil {
@@ -326,7 +337,7 @@ func writeCompressed(tw *tar.Writer, fn string, info Info,
 	return
 }
 
-// AppendFile appends file fn with info
+// appends file fn with info to tarfn, compressing with compressMethod
 func AppendFile(tarfn string, info Info, fn string, compressMethod string) (pos uint64, err error) {
 	tw, fh, pos, err := OpenForAppend(tarfn)
 	if err != nil {
@@ -359,7 +370,7 @@ func AppendFile(tarfn string, info Info, fn string, compressMethod string) (pos 
 	return
 }
 
-// AppendLink appends as link pointing at a previous item
+// appends as link pointing at a previously written item
 func AppendLink(tarfn string, info Info, src string, dst string) (err error) {
 	//var (twp *tar.Writer; fh ReadWriteSeekCloser; pos uint64)
 	if tw, fh, _, err := OpenForAppend(tarfn); err == nil {

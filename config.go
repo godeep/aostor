@@ -12,6 +12,7 @@ const (
 	DefaultConfigFile     = "aostor.ini"
 	DefaultTarThreshold   = 1000 * (1 << 20) // 1000Mb
 	DefaultIndexThreshold = 10               // How many index cdb should be merged
+	DefaultHostport       = ":8431"
 	TestConfig            = `[dirs]
 base = /tmp/aostor
 staging = %(base)s/#(realm)s/staging
@@ -21,21 +22,30 @@ tar = %(base)s/#(realm)s/store
 [threshold]
 index = 2
 tar = 512
+
+[http]
+hostport = :8431
+realms = test
 `
 )
 
 var ConfigFile = DefaultConfigFile
 
+// configuration variables, parsed
 type Config struct {
 	StagingDir, IndexDir, TarDir string
 	IndexThreshold               uint
 	TarThreshold                 uint64
+	Hostport                     string
+	Realms                       []string
 }
 
+// reads config file (or ConfigFile if empty), replaces every #(realm)s with the
+// given realm, if given
 func ReadConf(fn string, realm string) (Config, error) {
 	var c Config
 	if fn == "" {
-		fn = DefaultConfigFile
+		fn = ConfigFile
 	}
 	conf, err := config.ReadDefault(fn)
 	if err != nil {
@@ -69,15 +79,33 @@ func ReadConf(fn string, realm string) (Config, error) {
 	if err != nil {
 		logger.Printf("cannot get threshold/index: %s", err)
 		c.IndexThreshold = DefaultIndexThreshold
+	} else {
+		c.IndexThreshold = uint(i)
 	}
-	c.IndexThreshold = uint(i)
 
 	i, err = conf.Int("threshold", "tar")
 	if err != nil {
 		logger.Printf("cannot get threshold/tar: %s", err)
 		c.TarThreshold = DefaultTarThreshold
+	} else {
+		c.TarThreshold = uint64(i)
 	}
-	c.TarThreshold = uint64(i)
+
+	hp, err := conf.String("http", "hostport")
+	if err != nil {
+		logger.Printf("cannot get hostport: %s", err)
+		c.Hostport = DefaultHostport
+	} else {
+		c.Hostport = hp
+	}
+
+	realms, err := conf.String("http", "realms")
+	if err != nil {
+		logger.Printf("cannot get realms: %s", err)
+	} else {
+		c.Realms = strings.Split(realms, ",")
+	}
+
 	return c, err
 }
 
@@ -88,9 +116,9 @@ func getDir(conf *config.Config, section string, option string, realm string) (s
 	}
 	if realm != "" {
 		path = strings.Replace(path, "#(realm)s", realm, -1)
-	}
-	if !fileExists(path) {
-		os.MkdirAll(path, 0755)
+		if !fileExists(path) {
+			os.MkdirAll(path, 0755)
+		}
 	}
 	return path, nil
 }

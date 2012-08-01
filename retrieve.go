@@ -34,8 +34,12 @@ func Get(realm string, uuid string) (info Info, reader io.Reader, err error) {
 		return
 	}
 	var tar_uuid string
-	for level := 1; level < 10 && err == io.EOF; level++ {
-		tar_uuid, err = findInCdbs(uuid, conf.IndexDir+fmt.Sprintf("/L%02d", level))
+	for level := 1; level < 1000 && err == io.EOF; level++ {
+		dn := conf.IndexDir+fmt.Sprintf("/L%02d", level)
+		if !fileExists(dn) {
+			break
+		}
+		tar_uuid, err = findInCdbs(uuid, dn)
 	}
 	if err != nil {
 		return
@@ -44,6 +48,8 @@ func Get(realm string, uuid string) (info Info, reader io.Reader, err error) {
 		var tarfn string
 		tarfn = findTar(tar_uuid, conf.TarDir)
 		info, reader, err = GetFromCdb(uuid, tarfn+".cdb")
+		logger.Printf("found %s/%s in %s(%s): %s, %s",
+			realm, uuid, tarfn, tar_uuid, info, reader)
 	}
 	return
 }

@@ -27,6 +27,7 @@ func initConfig() {
 func testPut() (string, error) {
 	info := Info{}
 	fn := "store_test.go"
+	info.SetFilename(fn, "text/go")
 	data, err := os.Open(fn)
 	if err != nil {
 		logger.Printf("cannot open %s: %s", fn, err)

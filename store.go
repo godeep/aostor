@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/nu7hatch/gouuid"
+	//"bitbucket.org/taruti/mimemagic"
 	"io"
 	"os"
 	"unosoft.hu/aostor/compressor"
@@ -12,7 +13,12 @@ import (
 // var StoreCompressMethod = "bzip2"
 var StoreCompressMethod = "gzip"
 
+// puts file (info + data) into the given realm - returns the key
+// if the key is in info, then uses that
 func Put(realm string, info Info, data io.Reader) (key string, err error) {
+	if err = info.Prepare(); err != nil {
+		return "", err
+	}
 	conf, err := ReadConf("", realm)
 	if err != nil {
 		return
@@ -56,6 +62,7 @@ func Put(realm string, info Info, data io.Reader) (key string, err error) {
 	return
 }
 
+// returns a hexified 16-byte random UUID4
 func StrUUID() (string, error) {
 	k, err := uuid.NewV4()
 	if err != nil {
