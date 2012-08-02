@@ -80,6 +80,16 @@ func TestCompact(c *testing.T) {
 	testPut()
 }
 
+func TestDeDup(c *testing.T) {
+	conf, err := ReadConf("", "test")
+	if err != nil {
+		c.Fatalf("cannot read conf: %s", err)
+	}
+	testPut()
+	testPut()
+	DeDup(conf.StagingDir, conf.ContentHash)
+}
+
 func TestCdbMerge(c *testing.T) {
 	const N = 3
 	filenames := make([]string, 2)

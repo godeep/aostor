@@ -6,7 +6,7 @@ import (
 	"github.com/tgulacsi/go-cdb"
 	"io"
 	"os"
-	"path/filepath"
+	// "path/filepath"
 	"strings"
 )
 
@@ -56,10 +56,9 @@ func CompactStaging(realm string) error {
 
 // deduplication: replace data with a symlink to a previous data with the same contant-hash-...
 func DeDup(path string, hash string) int {
-	return 0 // doesn't work as expected
-
 	n := 0
-	hashes := make(map[string]fElt, 16)
+	hashes := make(map[string][]fElt, 16)
+	primals := make(map[string][]string, 16)
 	c := make(chan fElt, 1)
 	go listDir(c, path, hash)
 	for {
@@ -67,25 +66,54 @@ func DeDup(path string, hash string) int {
 		if !ok {
 			break
 		}
-		if elt.isSymlink == true {
+		// logger.Printf("%s sl? %s lo=%s", elt.contentHash, elt.isSymlink, FindLinkOrigin(elt.dataFn))
+		if elt.contentHash == "" {
 			continue
+		} else if elt.isSymlink {
+			if prim, ok := primals[elt.contentHash]; !ok {
+				primals[elt.contentHash] = []string{elt.dataFnOrig}
+			} else {
+				primals[elt.contentHash] = append(prim, elt.dataFnOrig)
+			}
+		} else if other, ok := hashes[elt.contentHash]; ok {
+			hashes[elt.contentHash] = append(other, elt)
+		} else {
+			hashes[elt.contentHash] = []fElt{elt}
 		}
-		if other, ok := hashes[elt.contentHash]; ok {
-			if !fileExists(other.dataFn) {
+	}
+	//logger.Printf("hashes=%s", hashes)
+	//logger.Printf("primals=%s", primals)
+
+	// TODO: primals for first in hashes
+	for _, elts := range hashes {
+		other := fElt{}
+		for _, elt := range elts {
+			if prim, ok := primals[elt.contentHash]; ok {
+				contains := false
+				for _, df := range prim {
+					if df == elt.dataFn {
+						contains = true
+						break
+					}
+				}
+				if contains {
+					continue
+				}
+			}
+			if other.dataFn == "" {
+				other = elt
 				continue
 			}
 			if err := os.Remove(elt.dataFn); err != nil {
 				logger.Printf("cannot remove %s: %s", elt.dataFn, err)
 			} else {
 				p := strings.LastIndex(elt.dataFn, "#")
-				if err := os.Symlink(other.dataFn, elt.dataFn[:p] + SuffLink); err != nil {
+				if err := os.Symlink(other.dataFn, elt.dataFn[:p]+SuffLink); err != nil {
 					logger.Printf("cannot create symlink %s for %s: %s", elt.dataFn, other.dataFn, err)
 				} else {
 					n++
 				}
 			}
-		} else {
-			hashes[elt.contentHash] = elt
 		}
 	}
 	return n
@@ -97,6 +125,7 @@ type fElt struct {
 	dataFn      string
 	contentHash string
 	isSymlink   bool
+	dataFnOrig  string
 }
 
 //Moves files from the given directory into a given tar file
@@ -130,6 +159,7 @@ func CreateTar(tarfn string, dirname string, move bool) error {
 	d := make(chan error, 1)
 	go cdb.MakeFromChan(cfh, c, d)
 	links := make(map[string]uint64, 32)
+	buf := make([]fElt, 0)
 
 	for {
 		elt, ok := <-listc
@@ -144,10 +174,10 @@ func CreateTar(tarfn string, dirname string, move bool) error {
 				logger.Panicf("cannot append %s", elt.infoFn)
 			}
 			if elt.isSymlink {
-				linkpos, ok := links[elt.info.Key]
+				linkpos, ok := links[elt.dataFnOrig]
 				if !ok {
-					logger.Panicf("%s points to unknown %s", elt.dataFn,
-						FindLinkOrigin(elt.dataFn))
+					buf = append(buf, elt)
+					continue
 				}
 				elt.info.Dpos = linkpos
 				_, pos, err = appendLink(tw, fh, elt.dataFn)
@@ -156,7 +186,7 @@ func CreateTar(tarfn string, dirname string, move bool) error {
 				}
 			} else {
 				elt.info.Dpos = pos
-				links[elt.info.Key] = pos
+				links[elt.dataFn] = pos
 				_, pos, err = appendFile(tw, fh, elt.dataFn)
 				if err != nil {
 					logger.Panicf("cannot append %s", elt.dataFn)
@@ -169,6 +199,24 @@ func CreateTar(tarfn string, dirname string, move bool) error {
 		}
 	}
 	close(c)
+
+	for _, elt := range buf {
+		linkpos, ok := links[elt.dataFnOrig]
+		if !ok {
+			logger.Printf("cannot find linkpos for %s -> %s", elt.dataFn, elt.dataFnOrig)
+			elt.info.Dpos = pos
+			_, pos, err = appendFile(tw, fh, elt.dataFn)
+		} else {
+			elt.info.Dpos = linkpos
+			_, pos, err = appendLink(tw, fh, elt.dataFn)
+		}
+		if err != nil {
+			logger.Panicf("cannot append %s", elt.dataFn)
+		} else {
+			tbd = append(tbd, elt.infoFn, elt.dataFn)
+		}
+	}
+
 	// iw.Close()
 	if err != nil {
 		fmt.Printf("error: %s", err)
@@ -188,106 +236,80 @@ func CreateTar(tarfn string, dirname string, move bool) error {
 
 func listDir(c chan<- fElt, path string, hash string) {
 	defer close(c)
+	possibleEndings := []string{"bz2", "gz"}
 	dh, err := os.Open(path)
 	if err != nil {
-		logger.Printf("cannot open dir %s: %s", path, err)
-	}
-	list, err := dh.Readdir(-1)
-	dh.Close()
-	if err != nil {
-		logger.Panicf("cannot list dir %s: %s", path, err)
+		logger.Panicf("cannot open dir %s: %s", path, err)
 	}
 	var (
-		key    string
-		isLnk, isInfo bool
-		info   Info
+		key             string
+		isLnk           bool
+		info, emptyInfo Info
 	)
-	buf := make(map[string]fElt, 32)
-	skip := make(map[string]error, 32)
-	for _, file := range list {
-		info = Info{}
-		bn := file.Name()
-		fn := path + "/" + bn
-		isLnk = file.Mode() & os.ModeSymlink > 0
-		if isLnk {
-			if !fileExists(fn) {
-				logger.Printf("removing dangling symlink %s", fn)
-				os.Remove(fn)
+	buf := make([]fElt, 0)
+	for {
+		keyfiles, err := dh.Readdir(1024)
+		if err != nil {
+			if err != io.EOF {
+				logger.Printf("cannot list dir %s: %s", path, err)
+			}
+			break
+		}
+		for _, fi := range keyfiles {
+			bn := fi.Name()
+			if !strings.HasSuffix(bn, SuffInfo) {
 				continue
 			}
-		}
-		switch {
-		case strings.HasSuffix(bn, SuffInfo):
-			key, isInfo = bn[:len(bn)-1], true
+			fn := path + "/" + bn
+			info = emptyInfo
+			// bn := BaseName(fn)
+			key = bn[:len(bn)-1]
 			if ifh, err := os.Open(path + "/" + bn); err == nil {
 				info, err = ReadInfo(ifh)
+				ifh.Close()
 				if err != nil {
 					logger.Printf("cannot read info from %s: %s", fn, err)
-					skip[key] = err
 					continue
 				}
-				ifh.Close()
 			} else {
 				logger.Printf("cannot read info from %s: %s", fn, err)
-				skip[key] = err
 				continue
 			}
-		case strings.Contains(bn, SuffLink):
-			key, isInfo = strings.Split(bn, SuffLink)[0], false
-			isLnk = true
-		case strings.Contains(bn, SuffData):
-			key, isInfo = strings.Split(bn, SuffData)[0], false
-			isLnk = fileIsSymlink(fn)
-		default:
-			key, isInfo = "", true
-		}
-		if err2, ok := skip[key]; ok {
-			logger.Printf("skipping %s 'cause of %s", key, err2)
-			continue
-		}
-		// logger.Printf("fn=%s -> key=%s ?%s", fn, key, isInfo)
-		if key != "" {
-			elt, ok := buf[key]
-			if isInfo {
-				elt.infoFn = fn
-				elt.info = info
-				if hash != "" {
-					elt.contentHash = info.Get(InfoPref + "Content-" + hash)
-				}
-			} else {
-				elt.dataFn = fn
-				elt.isSymlink = isLnk
-			}
-			if ok && elt.infoFn != "" && elt.dataFn != "" { //full
-				elt.info.Key = key
-				if !elt.isSymlink {
-					c <- elt
-					delete(buf, key)
-				}
-			} else if !ok {
-				buf[key] = elt
-			}
-		}
-	}
-	for key, elt := range(buf) {
-		if elt.infoFn != "" && elt.dataFn != "" {
-			c <- elt
-			delete(buf, key)
-		}
-	}
-	for key, elt := range(buf) {
-		if elt.infoFn != "" && elt.dataFn == "" {
-			files, err := filepath.Glob(elt.infoFn[:len(elt.infoFn)-1] + "#*")
-			if err != nil || len(files) == 0 {
-				logger.Printf("removing orphaned infoFn=%s", elt.infoFn)
-				os.Remove(elt.infoFn)
-				delete(buf, key)
-			}
+			info.Key = key
 
+			datafn := ""
+			pref := path + "/" + key
+			if fileExists(pref + SuffLink) {
+				datafn = pref + SuffLink
+				isLnk = true
+			} else {
+				pref += SuffData
+				for _, end := range possibleEndings {
+					// logger.Printf("checking %s: %s", pref + end, fileExists(pref+end))
+					if fileExists(pref + end) {
+						datafn = pref + end
+						break
+					}
+				}
+				if datafn == "" {
+					// logger.Printf("cannot find data file for %s", fn)
+					continue
+				}
+			}
+			elt := fElt{info: info, infoFn: fn, dataFn: datafn, isSymlink: isLnk}
+			if hash != "" {
+				elt.contentHash = info.Get(InfoPref + "Content-" + hash)
+			}
+			if elt.isSymlink {
+				elt.dataFnOrig = FindLinkOrigin(elt.dataFn)
+				buf = append(buf, elt)
+			} else {
+				c <- elt
+			}
 		}
 	}
-	if len(buf) > 0 {
-		logger.Printf("remaining files: %+v :remaining files", buf)
+	for _, elt := range buf {
+		c <- elt
 	}
 }
 
@@ -352,7 +374,7 @@ func inBs(size int64) uint64 {
 func fileIsSymlink(fn string) bool {
 	fi, err := os.Lstat(fn)
 	if err == nil {
-		return fi.Mode() & os.ModeSymlink > 0
+		return fi.Mode()&os.ModeSymlink > 0
 	}
 	return false
 }
