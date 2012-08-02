@@ -16,10 +16,8 @@ func CompactStaging(realm string) error {
 	if err != nil {
 		return err
 	}
-	n_a := dirCount(conf.StagingDir)
-	DeDup(conf.StagingDir, conf.ContentHash)
-	n_b := dirCount(conf.StagingDir)
-	logger.Printf("before DeDup: %d after: %d", n_a, n_b)
+	n := DeDup(conf.StagingDir, conf.ContentHash)
+	logger.Printf("DeDup: %d", n)
 
 	c := make(chan fElt, 1)
 	go listDir(c, conf.StagingDir, "")
@@ -242,10 +240,10 @@ func listDir(c chan<- fElt, path string, hash string) {
 		logger.Panicf("cannot open dir %s: %s", path, err)
 	}
 	var (
-		key             string
-		isLnk           bool
 		info, emptyInfo Info
+		elt, emptyElt   fElt
 	)
+	emptyElt.isSymlink = false
 	buf := make([]fElt, 0)
 	for {
 		keyfiles, err := dh.Readdir(1024)
@@ -260,43 +258,41 @@ func listDir(c chan<- fElt, path string, hash string) {
 			if !strings.HasSuffix(bn, SuffInfo) {
 				continue
 			}
-			fn := path + "/" + bn
-			info = emptyInfo
+			info, elt = emptyInfo, emptyElt
+			elt.infoFn = path + "/" + bn
 			// bn := BaseName(fn)
-			key = bn[:len(bn)-1]
-			if ifh, err := os.Open(path + "/" + bn); err == nil {
+			info.Key = bn[:len(bn)-1]
+			if ifh, err := os.Open(elt.infoFn); err == nil {
 				info, err = ReadInfo(ifh)
 				ifh.Close()
 				if err != nil {
-					logger.Printf("cannot read info from %s: %s", fn, err)
+					logger.Printf("cannot read info from %s: %s", elt.infoFn, err)
 					continue
 				}
 			} else {
-				logger.Printf("cannot read info from %s: %s", fn, err)
+				logger.Printf("cannot read info from %s: %s", elt.infoFn, err)
 				continue
 			}
-			info.Key = key
 
-			datafn := ""
-			pref := path + "/" + key
+			pref := path + "/" + info.Key
 			if fileExists(pref + SuffLink) {
-				datafn = pref + SuffLink
-				isLnk = true
+				elt.dataFn = pref + SuffLink
+				elt.isSymlink = true
 			} else {
 				pref += SuffData
 				for _, end := range possibleEndings {
 					// logger.Printf("checking %s: %s", pref + end, fileExists(pref+end))
 					if fileExists(pref + end) {
-						datafn = pref + end
+						elt.dataFn = pref + end
 						break
 					}
 				}
-				if datafn == "" {
+				if elt.dataFn == "" {
 					// logger.Printf("cannot find data file for %s", fn)
 					continue
 				}
 			}
-			elt := fElt{info: info, infoFn: fn, dataFn: datafn, isSymlink: isLnk}
+			elt.info = info
 			if hash != "" {
 				elt.contentHash = info.Get(InfoPref + "Content-" + hash)
 			}
@@ -340,21 +336,23 @@ func appendFile(tw *tar.Writer, tfh io.Seeker, fn string) (pos1 uint64, pos2 uin
 
 // FIXME
 func appendLink(tw *tar.Writer, tfh io.Seeker, fn string) (pos1 uint64, pos2 uint64, err error) {
+	if !fileIsSymlink(fn) {
+		return appendFile(tw, tfh, fn)
+	}
 	hdr, err := FileTarHeader(fn)
+	hdr.Size = 0
+	hdr.Typeflag = tar.TypeSymlink
+	hdr.Linkname = BaseName(FindLinkOrigin(fn))
+	// logger.Printf("fn=%s hdr=%+v tm=%s", fn, hdr, hdr.Typeflag)
 	if err != nil {
 		return
 	}
-	sfh, err := os.Open(fn)
-	if err != nil {
-		return
-	}
-	defer sfh.Close()
 	p, err := tfh.Seek(0, 1)
 	if err != nil {
 		return
 	}
 	pos1 = uint64(p)
-	WriteTar(tw, hdr, sfh)
+	WriteTar(tw, hdr, nil)
 	tw.Flush()
 	p, err = tfh.Seek(0, 1)
 	if err != nil {

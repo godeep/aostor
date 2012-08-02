@@ -223,9 +223,9 @@ func Finfo2Theader(fi os.FileInfo) (hdr *tar.Header, err error) {
 	switch {
 	case m&os.ModeSymlink != 0:
 		tm = tar.TypeSymlink
-		if lfi, err := os.Lstat(fi.Name()); err == nil {
+		/*if lfi, err := os.Lstat(fi.Name()); err == nil {
 			ln = lfi.Name()
-		}
+		}*/
 	case m&os.ModeDevice != 0 && m&os.ModeCharDevice != 0:
 		tm = tar.TypeChar
 	case m&os.ModeDevice != 0:
@@ -303,10 +303,12 @@ func WriteTar(tw *tar.Writer, hdr *tar.Header, r io.Reader) (err error) {
 	if err = tw.WriteHeader(hdr); err != nil {
 		logger.Panicf("error writing tar header %+v into %+v: %s", hdr, tw, err)
 	}
-	if _, err := io.Copy(tw, r); err != nil {
-		logger.Panicf("error copying tar data %+v into %+v: %s", r, tw, err)
+	if hdr.Typeflag == tar.TypeSymlink {
 	} else {
-		//logger.Printf("written %+v, then %d bytes into %+v", hdr, n, tw)
+		_, err = io.Copy(tw, r)
+	}
+	if err != nil {
+		logger.Panicf("error copying tar data %+v into %+v: %s", r, tw, err)
 	}
 	tw.Flush()
 	return
