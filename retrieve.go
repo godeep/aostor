@@ -17,6 +17,19 @@ import (
 
 var NotFound = errors.New("Not Found")
 
+var cdbFiles = map[string][2][]string{}
+
+//returns the associated info and data of a given uuid in a given realm
+//  1. checks staging area
+//  2. checks level zero (symlinked cdbs in ndx/L00)
+//  3. checks higher level (older, too) cdbs in ndx/L01, ndx/L02...
+//
+//The difference between level zero and higher is the following: at level zero,
+//there are the tar files' cdbs (symlinked), and these cdbs contains the info
+//(with the position information), ready to serve.
+//  At higher levels, the cdbs contains only "/%d" signs (which cdb,
+//only a number) and that sign is which zero-level cdb. So at this level an
+//additional lookup is required.
 func Get(realm string, uuid string) (info Info, reader io.Reader, err error) {
 	conf, err := ReadConf("", realm)
 	if err != nil {
@@ -33,28 +46,85 @@ func Get(realm string, uuid string) (info Info, reader io.Reader, err error) {
 		return
 	}
 
-	info, reader, err = findAtLevelZero(uuid, conf.IndexDir)
+	fillCdbCache(realm, conf.IndexDir, false)
+	info, reader, err = findAtLevelZero(realm, uuid)
 	if err == nil {
 		//logger.Printf("found at level zero: %s", info)
 		return
-	} else if err != io.EOF {
+	} else if err != NotFound {
 		return
 	}
-	var tar_uuid string
+	info, reader, err = findAtLevelHigher(realm, uuid, conf.IndexDir)
+	return
+}
+
+//fills the (cached) cdb files list. Rereads if force is true
+func fillCdbCache(realm string, indexdir string, force bool) {
+	cf, ok := cdbFiles[realm]
+	if !force && ok && (len(cf[0]) > 0 || len(cf[1]) > 0) {
+		return
+	}
+
+	pat := indexdir + "/L00/*.cdb"
+	files, err := filepath.Glob(pat)
+	if err != nil {
+		logger.Panicf("cannot list %s: %s", pat, err)
+	}
+	cdbFiles[realm] = [2][]string{files, make([]string, 0, 100)}
+	cf = cdbFiles[realm]
+
+
 	for level := 1; level < 1000 && err == io.EOF; level++ {
-		dn := conf.IndexDir + fmt.Sprintf("/L%02d", level)
+		dn := indexdir + fmt.Sprintf("/L%02d", level)
 		if !fileExists(dn) {
 			break
 		}
-		tar_uuid, err = findInCdbs(uuid, dn)
-		logger.Printf("searching %s at %s: %s %s", uuid, dn, tar_uuid, err)
+		pat = dn + "/*.cdb"
+		files, err = filepath.Glob(pat)
+		if err != nil {
+			logger.Panicf("cannot list %s: %s", pat, err)
+		}
+		cf[1] = append(cf[1], files...)
+	}
+}
+
+func findAtLevelHigher(realm string, uuid string, tardir string) (info Info, reader io.Reader, err error) {
+	var tar_uuid string
+	for _, cdb_fn := range cdbFiles[realm][1] {
+		db, err := cdb.Open(cdb_fn)
+		if err != nil {
+			return info, nil, err
+		}
+		indx, err := db.Data(StrToBytes(uuid))
+		switch err {
+		case nil:
+			tar_uuid_b, err := db.Data(indx)
+			db.Close()
+			if err != nil {
+				logger.Printf("cannot get %s from %s: %s", indx, cdb_fn, err)
+				return info, nil, err
+			}
+			tar_uuid = BytesToStr(tar_uuid_b)
+			break
+		case io.EOF:
+			db.Close()
+			continue
+		default:
+			db.Close()
+			return info, nil, err
+		}
+		db.Close()
+		logger.Printf("searching %s at %s: %s %s", uuid, tardir, tar_uuid, err)
 	}
 	if err != nil {
+		if err == io.EOF {
+			err = NotFound
+		}
 		return
 	}
 	if tar_uuid != "" {
 		var tarfn string
-		tarfn = findTar(tar_uuid, conf.TarDir)
+		tarfn = findTar(tar_uuid, tardir)
 		info, reader, err = GetFromCdb(uuid, tarfn+".cdb")
 		logger.Printf("found %s/%s in %s(%s): %s, %s",
 			realm, uuid, tarfn, tar_uuid, info, reader)
@@ -101,15 +171,9 @@ func fileExists(fn string) bool {
 	return false
 }
 
-func findAtLevelZero(uuid string, path string) (info Info, reader io.Reader, err error) {
-	path = path + "/L00"
-	files, err := filepath.Glob(path + "/*.tar.cdb")
-	if err != nil {
-		logger.Printf("error listing %s: %s", path, err)
-		return
-	}
-	logger.Printf("files at %s: %s", path, files)
-	for _, cdb_fn := range files {
+func findAtLevelZero(realm string, uuid string) (info Info, reader io.Reader, err error) {
+	logger.Printf("files at %s: %s", realm, cdbFiles[realm][0])
+	for _, cdb_fn := range cdbFiles[realm][0] {
 		info, reader, err = GetFromCdb(uuid, cdb_fn)
 		switch err {
 		case nil:
@@ -123,38 +187,11 @@ func findAtLevelZero(uuid string, path string) (info Info, reader io.Reader, err
 		}
 	}
 
-	logger.Printf("findAtLevelZero(%s, %s): %s", uuid, path, info)
-	return info, nil, io.EOF
+	logger.Printf("findAtLevelZero(%s, %s): %s", realm, uuid, info)
+	return info, nil, NotFound
 }
 
-func findInCdbs(uuid string, path string) (string, error) {
-	var (
-		err error
-	)
-	files, err := filepath.Glob(path + "/*.cdb")
-	if err != nil {
-		return "", err
-	}
-	for _, cdb_fn := range files {
-		db, err := cdb.Open(cdb_fn)
-		if err != nil {
-			return "", err
-		}
-		tar_uuid_b, err := db.Data(StrToBytes(uuid))
-		db.Close()
-		switch err {
-		case nil:
-			return BytesToStr(tar_uuid_b), nil
-		case io.EOF:
-			continue
-		default:
-			return "", err
-		}
-	}
-
-	return "", io.EOF
-}
-
+//TODO: cache all tars!
 func findTar(uuid string, path string) string {
 	end := uuid + ".tar"
 	var tarfn string
