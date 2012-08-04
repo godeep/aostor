@@ -128,6 +128,9 @@ func (s bySizeReversed) Less(i, j int) bool {
 	return s.sizedFilenames[i].size > s.sizedFilenames[j].size
 }
 
+//merges cdbs
+///%02d is a book id, which exists as key and value, too.
+//The key's value is the tar file's name
 func mergeCdbs(dest_cdb_fn string, source_cdb_files []string, level uint, threshold uint, move bool) error {
 	if uint(len(source_cdb_files)) < threshold {
 		return nil
