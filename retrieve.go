@@ -204,7 +204,7 @@ func findAtLevelHigher(realm string, uuid string, tardir string) (info Info, rea
 			return
 		}
 		info, reader, err = GetFromCdb(uuid, tarfn+".cdb")
-		logger.Printf("found %s/%s in %s(%s): %s" ,
+		logger.Printf("found %s/%s in %s(%s): %s",
 			realm, uuid, tarfn, tarfn_b, info)
 	} else {
 		err = NotFound
