@@ -128,7 +128,7 @@ func fillTarCache(realm string, tardir string, force bool) {
 	}
 
 	tf := make(map[string]string, 1000)
-	filepath.Walk(tardir, func(path string, info os.FileInfo, err error) error {
+	filepath.Walk(tardir, func(fn string, info os.FileInfo, err error) error {
 		if err != nil {
 			if info.IsDir() {
 				return filepath.SkipDir
@@ -138,7 +138,6 @@ func fillTarCache(realm string, tardir string, force bool) {
 		} else {
 			if strings.HasSuffix(info.Name(), ".tar") {
 				bn := info.Name()
-				fn := path + "/" + bn
 				tf[bn] = fn
 				uuid := bn[:len(bn)-4] //213-uuid.tar
 				p := strings.LastIndex(uuid, "-")
@@ -198,14 +197,15 @@ func findAtLevelHigher(realm string, uuid string, tardir string) (info Info, rea
 	}
 	if tarfn_b != "" {
 		tarfn, ok := tarFiles[realm][tarfn_b]
+		logger.Printf("tarfn_b=%s => %s (%s)", tarfn_b, tarfn, ok)
 		if !ok {
 			logger.Printf("cannot find tarfile for %s!", tarfn)
 			err = NotFound
 			return
 		}
 		info, reader, err = GetFromCdb(uuid, tarfn+".cdb")
-		logger.Printf("found %s/%s in %s(%s): %s, %s",
-			realm, uuid, tarfn, tarfn_b, info, reader)
+		logger.Printf("found %s/%s in %s(%s): %s" ,
+			realm, uuid, tarfn, tarfn_b, info)
 	} else {
 		err = NotFound
 	}
