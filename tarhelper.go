@@ -1,3 +1,19 @@
+// Copyright 2012 Tamás Gulácsi, UNO-SOFT Computing Ltd.
+// This file is part of aostor.
+
+// Aostor is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+
+// Foobar is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+
+// You should have received a copy of the GNU General Public License
+// along with Foobar.  If not, see <http://www.gnu.org/licenses/>.
+
 package aostor
 
 import (
@@ -8,7 +24,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"os/user"
 	"strings"
@@ -21,8 +36,6 @@ var (
 	NotRegularFile = errors.New("aodb/tarhelper: not a regular file")
 	ErrBadTarEnd   = errors.New("aodb/tarhelper: bad tar end")
 )
-
-var logger = log.New(os.Stderr, "tarhelper ", log.LstdFlags|log.Lshortfile)
 
 const (
 	SuffInfo = "!" // suffix of info file

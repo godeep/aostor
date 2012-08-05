@@ -1,13 +1,31 @@
+// Copyright 2012 Tamás Gulácsi, UNO-SOFT Computing Ltd.
+// This file is part of aostor.
+
+// Aostor is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+
+// Foobar is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+
+// You should have received a copy of the GNU General Public License
+// along with Foobar.  If not, see <http://www.gnu.org/licenses/>.
+
 package aostor
 
 import (
 	//"code.google.com/p/goconf/conf"
+	"bufio"
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
 	"fmt"
 	"github.com/kless/goconfig/config"
 	"hash"
+	"log"
 	"os"
 	"strings"
 )
@@ -40,6 +58,7 @@ content = sha1
 var (
 	ConfigFile = DefaultConfigFile
 	configs    = make(map[string]Config, 2) // configs cache
+	logger = log.New(bufio.NewWriter(os.Stderr), "aostor ", log.LstdFlags|log.Lshortfile)
 )
 
 // configuration variables, parsed

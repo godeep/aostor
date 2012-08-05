@@ -1,6 +1,20 @@
-package aostor
+// Copyright 2012 Tamás Gulácsi, UNO-SOFT Computing Ltd.
+// This file is part of aostor.
 
-//retrieve
+// Aostor is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+
+// Foobar is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+
+// You should have received a copy of the GNU General Public License
+// along with Foobar.  If not, see <http://www.gnu.org/licenses/>.
+
+package aostor
 
 import (
 	"bytes"
@@ -28,7 +42,7 @@ var tarFiles = map[string](map[string]string){}
 //The difference between level zero and higher is the following: at level zero,
 //there are the tar files' cdbs (symlinked), and these cdbs contains the info
 //(with the position information), ready to serve.
-//  At higher levels, the cdbs contains only "/%d" signs (which cdb,
+//At higher levels, the cdbs contains only "/%d" signs (which cdb,
 //only a number) and that sign is which zero-level cdb. So at this level an
 //additional lookup is required.
 func Get(realm string, uuid string) (info Info, reader io.Reader, err error) {
