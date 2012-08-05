@@ -1,0 +1,14 @@
+<seelog minlevel="debug">
+    <outputs>
+    	<splitter>
+	        <console formatid="console" />
+	        <buffered size="2048" flushperiod="10000" formatid="file">
+	        	<rollingfile type="size" maxsize="10485760" maxrolls="10" filename="/tmp/aostor.log"/>
+	        </buffered>
+	    </splitter>
+    </outputs>
+    <formats>
+    	<format id="console" format="[%LEV] %Msg%n" />
+    	<format id="file" format="%Date %Time [%LEV] %RelFile %Func: %Msg%n" />
+    </formats>
+</seelog>

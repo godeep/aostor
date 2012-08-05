@@ -1,18 +1,21 @@
 // Copyright 2012 Tamás Gulácsi, UNO-SOFT Computing Ltd.
+//
+// All rights reserved.
+//
 // This file is part of aostor.
-
+//
 // Aostor is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
-
-// Foobar is distributed in the hope that it will be useful,
+//
+// Aostor is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU General Public License for more details.
-
+//
 // You should have received a copy of the GNU General Public License
-// along with Foobar.  If not, see <http://www.gnu.org/licenses/>.
+// along with Aostor.  If not, see <http://www.gnu.org/licenses/>.
 
 package aostor
 
@@ -27,7 +30,7 @@ import (
 func initConfig() {
 	checkMerge = true
 	if !fileExists(ConfigFile) {
-		logger.Printf("config: %s not exists?", ConfigFile)
+		logger.Info("config: %s not exists?", ConfigFile)
 		fh, err := os.OpenFile(ConfigFile, os.O_CREATE|os.O_WRONLY, 0640)
 		if err != nil {
 			panic(err)
@@ -46,7 +49,7 @@ func testPut() (string, error) {
 	info.SetFilename(fn, "text/go")
 	data, err := os.Open(fn)
 	if err != nil {
-		logger.Printf("cannot open %s: %s", fn, err)
+		logger.Error("cannot open %s: %s", fn, err)
 		return "", err
 	}
 	return Put("test", info, data)

@@ -1,18 +1,21 @@
 // Copyright 2012 Tamás Gulácsi, UNO-SOFT Computing Ltd.
+//
+// All rights reserved.
+//
 // This file is part of aostor.
-
+//
 // Aostor is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
-
-// Foobar is distributed in the hope that it will be useful,
+//
+// Aostor is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU General Public License for more details.
-
+//
 // You should have received a copy of the GNU General Public License
-// along with Foobar.  If not, see <http://www.gnu.org/licenses/>.
+// along with Aostor.  If not, see <http://www.gnu.org/licenses/>.
 
 package aostor
 
@@ -39,14 +42,13 @@ var checkMerge bool = false
 func CompactIndices(realm string, level uint) error {
 	conf, err := ReadConf("", realm)
 	if err != nil {
-		logger.Printf("cannot open config: %s", err)
 		return err
 	}
 	var n int
 	for ; level < 10; level++ {
 		n, err = compactLevel(level, conf.IndexDir, conf.IndexThreshold)
 		if err != nil {
-			logger.Printf("compactLevel(%s, %s, %s): %s", level, conf.IndexDir, conf.IndexThreshold, err)
+			logger.Error("compactLevel(%s, %s, %s): %s", level, conf.IndexDir, conf.IndexThreshold, err)
 			return err
 		} else if n == 0 {
 			break
@@ -64,7 +66,7 @@ func compactLevel(level uint, index_dir string, threshold uint) (int, error) {
 	path := index_dir + "/" + fmt.Sprintf("L%02d", level)
 	files_a, err := filepath.Glob(path + "/*.cdb")
 	if err != nil {
-		logger.Printf("cannot list files in %s: %s", path, err)
+		logger.Error("cannot list files in %s: %s", path, err)
 		return 0, err
 	}
 	files := make(sizedFilenames, 0)
@@ -81,7 +83,6 @@ func compactLevel(level uint, index_dir string, threshold uint) (int, error) {
 	if length <= threshold {
 		return 0, nil
 	}
-	//logger.Printf("files=%s", files)
 	sort.Sort(bySizeReversed{files})
 	dest_dir := index_dir + "/" + fmt.Sprintf("L%02d", level+1)
 	lskip := uint(0)
@@ -113,13 +114,13 @@ func compactLevel(level uint, index_dir string, threshold uint) (int, error) {
 
 		uuid, err := StrUUID()
 		if err != nil {
-			logger.Printf("cannot generate uuid: %s", err)
+			logger.Critical("cannot generate uuid: %s", err)
 			return 0, err
 		}
 		dest_cdb_fn := dest_dir + "/" + strNow()[:15] + "-" + uuid + ".cdb"
 		err = mergeCdbs(dest_cdb_fn, fbuf, level, threshold, true)
 		if err != nil {
-			logger.Printf("mergeCdbs(%s, %s, %s, %s, %s): %s", dest_cdb_fn, fbuf, level, threshold, true, err)
+			logger.Error("mergeCdbs(%s, %s, %s, %s, %s): %s", dest_cdb_fn, fbuf, level, threshold, true, err)
 			return 0, err
 		}
 		num += len(fbuf)
@@ -154,13 +155,13 @@ func mergeCdbs(dest_cdb_fn string, source_cdb_files []string, level uint, thresh
 	dn := filepath.Dir(dest_cdb_fn)
 	if !fileExists(dn) {
 		if err := os.MkdirAll(dn, 0755); err != nil {
-			logger.Printf("cannot create dest directory %s: %s", dn, err)
+			logger.Error("cannot create dest directory %s: %s", dn, err)
 			return err
 		}
 	}
 	cw, err := cdb.NewWriter(dest_cdb_fn)
 	if err != nil {
-		logger.Printf("cannot open dest cdb %s: %s", dest_cdb_fn, err)
+		logger.Error("cannot open dest cdb %s: %s", dest_cdb_fn, err)
 		return err
 	}
 	booknum := 0
@@ -181,31 +182,32 @@ func mergeCdbs(dest_cdb_fn string, source_cdb_files []string, level uint, thresh
 		if level == 0 {
 			book_id = StrToBytes(fmt.Sprintf("/%d", booknum))
 			if book_id[0] != '/' {
-				logger.Panicf("book_id=%s not starts with /??", book_id)
+				logger.Critical("book_id=%s not starts with /??", book_id)
+				os.Exit(1)
 			}
 			booknum++
 			//FIXME: store only the relative path?
-			logger.Printf("put(%s,%s)", book_id, sfn)
+			logger.Debug("put(%s,%s)", book_id, sfn)
 			cw.PutPair(book_id, StrToBytes(filepath.Base(sfn[:len(sfn)-4])))
 		} else {
 			books = make(map[string]string, threshold<<(3*level))
 		}
 		sfh, err := os.Open(sfn)
 		if err != nil {
-			logger.Printf("cannot open source cdb %s: %s", sfn, err)
+			logger.Error("cannot open source cdb %s: %s", sfn, err)
 			return err
 		}
 		cr := make(chan cdb.Element, 1)
 		go cdb.DumpToChan(cr, sfh)
-		//logger.Printf("Dumping %s into %s", sfn, dest_cdb_fn)
+		logger.Debug("Dumping %s into %s", sfn, dest_cdb_fn)
 		for {
 			elt, ok := <-cr
 			if !ok {
 				break
 			}
-			//logger.Printf("elt=%s", elt)
+			logger.Trace("elt=%s", elt)
 			if level == 0 {
-				//logger.Printf("put(%s,%s)", elt.Key, book_id)
+				logger.Trace("put(%s,%s)", elt.Key, book_id)
 				cw.PutPair(elt.Key, book_id)
 				if checkMerge {
 					check[BytesToStr(elt.Key)] = sfn
@@ -217,12 +219,13 @@ func mergeCdbs(dest_cdb_fn string, source_cdb_files []string, level uint, thresh
 					books[BytesToStr(elt.Key)] = bs
 					book_id = StrToBytes(bs)
 					booknum++
-					logger.Printf("put(%s,%s)", book_id, elt.Data)
+					logger.Debug("put(%s,%s)", book_id, elt.Data)
 					cw.PutPair(book_id, elt.Data)
 				} else {
 					if _, ok := books[BytesToStr(elt.Data)]; !ok {
-						logger.Panicf("level %d, unknown book %s of %s from %s (known: %+v)",
+						logger.Critical("level %d, unknown book %s of %s from %s (known: %+v)",
 							level, elt.Data, elt.Key, sfh.Name(), books)
+						os.Exit(1)
 					}
 					cw.PutPair(elt.Key, StrToBytes(books[BytesToStr(elt.Data)]))
 					if checkMerge {
@@ -247,7 +250,8 @@ func mergeCdbs(dest_cdb_fn string, source_cdb_files []string, level uint, thresh
 	if checkMerge {
 		fh, err := os.Open(dest_cdb_fn)
 		if err != nil {
-			logger.Panicf("cannot open %s", dest_cdb_fn)
+			logger.Critical("cannot open %s", dest_cdb_fn)
+			os.Exit(1)
 		}
 		cr := make(chan cdb.Element, 1)
 		go cdb.DumpToChan(cr, fh)
@@ -264,7 +268,8 @@ func mergeCdbs(dest_cdb_fn string, source_cdb_files []string, level uint, thresh
 				if ok {
 					delete(check, k)
 				} else {
-					logger.Panicf("CheckMerge error: %s in merged db, but not in checklist", k)
+					logger.Critical("CheckMerge error: %s in merged db, but not in checklist", k)
+					os.Exit(1)
 				}
 			}
 		}
@@ -272,18 +277,19 @@ func mergeCdbs(dest_cdb_fn string, source_cdb_files []string, level uint, thresh
 		for _, i := range lengths {
 			length_sum += i
 		}
-		logger.Printf("merged dump: %d elts=%s sum=%d OK? %s", n, lengths,
+		logger.Info("merged dump: %d elts=%s sum=%d OK? %s", n, lengths,
 			length_sum, length_sum == n)
 		if len(check) > 0 {
-			logger.Panicf("CheckMerge error: checklist not empty: %s", check)
+			logger.Critical("CheckMerge error: checklist not empty: %s", check)
+			os.Exit(1)
 		}
 	}
 	if move {
 		for _, fn := range tbd {
-			logger.Printf("deleting %s", fn)
+			logger.Info("deleting %s", fn)
 			err = os.Remove(fn)
 			if err != nil {
-				logger.Printf("cannot remove %s", fn)
+				logger.Error("cannot remove %s", fn)
 				return err
 			}
 		}

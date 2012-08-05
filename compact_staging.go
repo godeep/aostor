@@ -1,18 +1,21 @@
 // Copyright 2012 Tamás Gulácsi, UNO-SOFT Computing Ltd.
+//
+// All rights reserved.
+//
 // This file is part of aostor.
-
+//
 // Aostor is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
-
-// Foobar is distributed in the hope that it will be useful,
+//
+// Aostor is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU General Public License for more details.
-
+//
 // You should have received a copy of the GNU General Public License
-// along with Foobar.  If not, see <http://www.gnu.org/licenses/>.
+// along with Aostor.  If not, see <http://www.gnu.org/licenses/>.
 
 package aostor
 
@@ -33,7 +36,7 @@ func CompactStaging(realm string) error {
 		return err
 	}
 	n := DeDup(conf.StagingDir, conf.ContentHash)
-	logger.Printf("DeDup: %d", n)
+	logger.Info("DeDup: %d", n)
 
 	c := make(chan fElt, 1)
 	go listDir(c, conf.StagingDir, "")
@@ -49,7 +52,7 @@ func CompactStaging(realm string) error {
 		} else {
 			size += inBs(fileSize(elt.dataFn))
 		}
-		logger.Printf("elt=%s => size=%d", elt, size)
+		logger.Debug("elt=%s => size=%d", elt, size)
 		if size >= conf.TarThreshold {
 			uuid, err := StrUUID()
 			if err != nil {
@@ -80,7 +83,7 @@ func DeDup(path string, hash string) int {
 		if !ok {
 			break
 		}
-		// logger.Printf("%s sl? %s lo=%s", elt.contentHash, elt.isSymlink, FindLinkOrigin(elt.dataFn))
+		logger.Trace("%s sl? %s lo=%s", elt.contentHash, elt.isSymlink, FindLinkOrigin(elt.dataFn))
 		if elt.contentHash == "" {
 			continue
 		} else if elt.isSymlink {
@@ -119,11 +122,11 @@ func DeDup(path string, hash string) int {
 				continue
 			}
 			if err := os.Remove(elt.dataFn); err != nil {
-				logger.Printf("cannot remove %s: %s", elt.dataFn, err)
+				logger.Warn("cannot remove %s: %s", elt.dataFn, err)
 			} else {
 				p := strings.LastIndex(elt.dataFn, "#")
 				if err := os.Symlink(other.dataFn, elt.dataFn[:p]+SuffLink); err != nil {
-					logger.Printf("cannot create symlink %s for %s: %s", elt.dataFn, other.dataFn, err)
+					logger.Warn("cannot create symlink %s for %s: %s", elt.dataFn, other.dataFn, err)
 				} else {
 					n++
 				}
@@ -185,7 +188,8 @@ func CreateTar(tarfn string, dirname string, move bool) error {
 			elt.info.Ipos = pos
 			_, pos, err = appendFile(tw, fh, elt.infoFn)
 			if err != nil {
-				logger.Panicf("cannot append %s", elt.infoFn)
+				logger.Critical("cannot append %s", elt.infoFn)
+				os.Exit(1)
 			}
 			if elt.isSymlink {
 				linkpos, ok := links[elt.dataFnOrig]
@@ -196,14 +200,16 @@ func CreateTar(tarfn string, dirname string, move bool) error {
 				elt.info.Dpos = linkpos
 				_, pos, err = appendLink(tw, fh, elt.dataFn)
 				if err != nil {
-					logger.Panicf("cannot append %s", elt.dataFn)
+					logger.Critical("cannot append %s", elt.dataFn)
+					os.Exit(1)
 				}
 			} else {
 				elt.info.Dpos = pos
 				links[elt.dataFn] = pos
 				_, pos, err = appendFile(tw, fh, elt.dataFn)
 				if err != nil {
-					logger.Panicf("cannot append %s", elt.dataFn)
+					logger.Critical("cannot append %s", elt.dataFn)
+					os.Exit(1)
 				}
 			}
 			c <- cdb.Element{StrToBytes(elt.info.Key), elt.info.Bytes()}
@@ -217,7 +223,7 @@ func CreateTar(tarfn string, dirname string, move bool) error {
 	for _, elt := range buf {
 		linkpos, ok := links[elt.dataFnOrig]
 		if !ok {
-			logger.Printf("cannot find linkpos for %s -> %s", elt.dataFn, elt.dataFnOrig)
+			logger.Warn("cannot find linkpos for %s -> %s", elt.dataFn, elt.dataFnOrig)
 			elt.info.Dpos = pos
 			_, pos, err = appendFile(tw, fh, elt.dataFn)
 		} else {
@@ -225,7 +231,8 @@ func CreateTar(tarfn string, dirname string, move bool) error {
 			_, pos, err = appendLink(tw, fh, elt.dataFn)
 		}
 		if err != nil {
-			logger.Panicf("cannot append %s", elt.dataFn)
+			logger.Critical("cannot append %s", elt.dataFn)
+			os.Exit(1)
 		} else {
 			tbd = append(tbd, elt.infoFn, elt.dataFn)
 		}
@@ -238,7 +245,7 @@ func CreateTar(tarfn string, dirname string, move bool) error {
 	err = <-d
 	cfh.Close()
 	if err != nil {
-		logger.Printf("cdbMake error: %s", err)
+		logger.Error("cdbMake error: %s", err)
 	}
 	if move && err == nil {
 		for _, fn := range tbd {
@@ -253,7 +260,8 @@ func listDir(c chan<- fElt, path string, hash string) {
 	possibleEndings := []string{"bz2", "gz"}
 	dh, err := os.Open(path)
 	if err != nil {
-		logger.Panicf("cannot open dir %s: %s", path, err)
+		logger.Critical("cannot open dir %s: %s", path, err)
+		os.Exit(1)
 	}
 	var (
 		info, emptyInfo Info
@@ -265,7 +273,7 @@ func listDir(c chan<- fElt, path string, hash string) {
 		keyfiles, err := dh.Readdir(1024)
 		if err != nil {
 			if err != io.EOF {
-				logger.Printf("cannot list dir %s: %s", path, err)
+				logger.Error("cannot list dir %s: %s", path, err)
 			}
 			break
 		}
@@ -282,11 +290,11 @@ func listDir(c chan<- fElt, path string, hash string) {
 				info, err = ReadInfo(ifh)
 				ifh.Close()
 				if err != nil {
-					logger.Printf("cannot read info from %s: %s", elt.infoFn, err)
+					logger.Error("cannot read info from %s: %s", elt.infoFn, err)
 					continue
 				}
 			} else {
-				logger.Printf("cannot read info from %s: %s", elt.infoFn, err)
+				logger.Error("cannot read info from %s: %s", elt.infoFn, err)
 				continue
 			}
 
@@ -404,7 +412,7 @@ func dirCount(dirname string) uint64 {
 			} else if err == io.EOF {
 				break
 			} else {
-				logger.Printf("cannot list %s: %s", dirname, err)
+				logger.Error("cannot list %s: %s", dirname, err)
 				break
 			}
 		}

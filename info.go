@@ -1,18 +1,21 @@
 // Copyright 2012 Tamás Gulácsi, UNO-SOFT Computing Ltd.
+//
+// All rights reserved.
+//
 // This file is part of aostor.
-
+//
 // Aostor is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
-
-// Foobar is distributed in the hope that it will be useful,
+//
+// Aostor is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU General Public License for more details.
-
+//
 // You should have received a copy of the GNU General Public License
-// along with Foobar.  If not, see <http://www.gnu.org/licenses/>.
+// along with Aostor.  If not, see <http://www.gnu.org/licenses/>.
 
 package aostor
 
@@ -139,7 +142,7 @@ func (info *Info) NewReader() (io.Reader, int) {
 	text := strings.Join(buf, "\n")
 	//logger.Printf("info[%d]=%s", len(text), text)
 	if len(text) <= 2 {
-		logger.Panicf("empty info (key=%s m=%+v)", info.Key, info.m)
+		logger.Critical("empty info (key=%s m=%+v)", info.Key, info.m)
 	}
 	return strings.NewReader(text), len(text)
 }
@@ -149,7 +152,7 @@ func (info *Info) Bytes() []byte {
 	r, _ := info.NewReader()
 	ret, err := ioutil.ReadAll(r)
 	if err != nil {
-		logger.Panicf("cannot read back: %s", err)
+		logger.Critical("cannot read back: %s", err)
 	}
 	return ret
 }

@@ -1,18 +1,21 @@
 // Copyright 2012 Tamás Gulácsi, UNO-SOFT Computing Ltd.
+//
+// All rights reserved.
+//
 // This file is part of aostor.
-
+//
 // Aostor is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
-
-// Foobar is distributed in the hope that it will be useful,
+//
+// Aostor is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU General Public License for more details.
-
+//
 // You should have received a copy of the GNU General Public License
-// along with Foobar.  If not, see <http://www.gnu.org/licenses/>.
+// along with Aostor.  If not, see <http://www.gnu.org/licenses/>.
 
 package aostor
 
@@ -55,41 +58,41 @@ func (e *SymlinkError) Error() string {
 }
 
 // Reads from tarfn at starting at pos
-//   returns a SymplinkError with the symlink information,
-//   if there is a symlink at the given position
-//   - to be able to retry with the symlink
+// returns a SymplinkError with the symlink information,
+// if there is a symlink at the given position
+// - to be able to retry with the symlink
 func ReadItem(tarfn string, pos int64) (ret io.Reader, err error) {
 	f, err := os.Open(tarfn)
 	if err != nil {
-		logger.Printf("cannot open %s: %s", tarfn, err)
+		logger.Error("cannot open %s: %s", tarfn, err)
 	}
 	defer f.Close()
 	p, err := f.Seek(pos, 0)
 	if err != nil {
-		logger.Printf("cannot seek in %s to %d: %s", f, pos, err)
+		logger.Error("cannot seek in %s to %d: %s", f, pos, err)
 		return nil, err
 	} else if p != pos {
-		logger.Printf("cannot seek in %s to %d: got %d", f, pos, p)
+		logger.Error("cannot seek in %s to %d: got %d", f, pos, p)
 	}
 	tr := tar.NewReader(f)
 	hdr, err := tr.Next()
 	if err != nil {
-		logger.Printf("cannot go to next tar header: %s", err)
+		logger.Error("cannot go to next tar header: %s", err)
 	}
-	//logger.Printf("ReadItem(%s, %d) hdr=%s", tarfn, pos, hdr)
+	logger.Debug("ReadItem(%s, %d) hdr=%s", tarfn, pos, hdr)
 	switch {
 	case hdr.Typeflag == tar.TypeSymlink:
 		err = &SymlinkError{hdr.Linkname}
 	case hdr.Typeflag != tar.TypeReg && hdr.Typeflag != tar.TypeRegA:
 		err = NotRegularFile
 	case strings.HasSuffix(hdr.Name, SuffData+"bz2"):
-		//logger.Printf("bz2[%s] length=%d", hdr.Name, hdr.Size)
+		logger.Trace("bz[%s] length=%d", hdr.Name, hdr.Size)
 		ret = bzip2.NewReader(io.LimitReader(tr, hdr.Size))
 	case strings.HasSuffix(hdr.Name, SuffData+"gz"):
-		//logger.Printf("gz[%s] length=%d", hdr.Name, hdr.Size)
+		logger.Trace("gz[%s] length=%d", hdr.Name, hdr.Size)
 		ret, err = gzip.NewReader(io.LimitReader(tr, hdr.Size))
 	case true:
-		//logger.Printf("[%s] length=%d", hdr.Name, hdr.Size)
+		logger.Trace("[%s] length=%d", hdr.Name, hdr.Size)
 		ret = tr
 	}
 	//logger.Printf("ret=%s err=%s", ret, err)
@@ -162,17 +165,19 @@ type ReadWriteSeekCloser interface {
 func FindTarEnd(r io.ReadSeeker, last_known uint64) (pos uint64, err error) {
 	var p int64
 	if p, err = r.Seek(0, 1); err != nil {
-		logger.Panicf("cannot seek %s: %s", r, err)
+		logger.Critical("cannot seek %s: %s", r, err)
+		return
 	}
-	//logger.Printf("p=%d last_known=%d", p, last_known)
+	logger.Debug("p=%d last_known=%d", p, last_known)
 	if last_known > uint64(p) {
 		p, err = r.Seek(-BS, 2)
 		if uint64(p) > last_known {
 			if p, err = r.Seek(int64(last_known), 0); err != nil {
-				logger.Panicf("cannot seek to %d", int64(last_known))
+				logger.Critical("cannot seek to %d", int64(last_known))
+				return
 			}
 		}
-		logger.Printf("p=%d", p)
+		logger.Trace("p=%d", p)
 	}
 	tr := tar.NewReader(r)
 	for {
@@ -183,7 +188,7 @@ func FindTarEnd(r io.ReadSeeker, last_known uint64) (pos uint64, err error) {
 			// p, err = r.Seek(0, 1); logger.Printf("pos=%d", p)
 		}
 	}
-	//logger.Printf("end of %s: %d", r, p)
+	logger.Debug("end of %s: %d", r, p)
 	return uint64(p), err
 }
 
@@ -192,35 +197,36 @@ func OpenForAppend(tarfn string) (
 	tw *tar.Writer, fobj ReadWriteSeekCloser, pos uint64, err error) {
 	fh, err := os.OpenFile(tarfn, os.O_RDWR|os.O_CREATE, 0640)
 	if err != nil {
-		logger.Printf("cannot open %s: %s", tarfn, err)
+		logger.Error("cannot open %s: %s", tarfn, err)
 		return
 	}
 	fi, err := fh.Stat()
 	if err != nil {
-		logger.Printf("cannot stat %s: %s", fh, err)
+		logger.Error("cannot stat %s: %s", fh, err)
 		return
 	}
 	//logger.Printf("%s.Size=%d", tarfn, fi.Size())
 	var p int64
 	if fi.Size() >= 2*BS {
 		if pos, err = FindTarEnd(fh, tarEndCache[tarfn]); err == nil {
-			logger.Printf("end of %s: %d", tarfn, pos)
+			logger.Debug("end of %s: %d", tarfn, pos)
 			tarEndCache[tarfn] = pos
 		} else {
-			logger.Printf("error %s: %s", tarfn, err)
+			logger.Error("error %s: %s", tarfn, err)
 		}
 	} else {
 		if p, err = fh.Seek(0, 0); err != nil {
-			logger.Printf("error: %s: %s", tarfn, err)
+			logger.Error("error: %s: %s", tarfn, err)
 		}
 		pos = uint64(p)
 	}
 	tw = tar.NewWriter(fh)
 	if err == nil && tw == nil {
-		logger.Panicf("couldn't open %+v!", tarfn)
+		logger.Critical("couldn't open %+v!", tarfn)
+		os.Exit(1)
 	}
 	fobj = fh
-	logger.Printf("opened %s (err=%s): tw=%+v, fh=%+v, pos=%d",
+	logger.Debug("opened %s (err=%s): tw=%+v, fh=%+v, pos=%d",
 		tarfn, err, tw, fh, pos)
 	return
 }
@@ -314,14 +320,15 @@ func FillHeader(hdr *tar.Header) {
 
 func WriteTar(tw *tar.Writer, hdr *tar.Header, r io.Reader) (err error) {
 	if err = tw.WriteHeader(hdr); err != nil {
-		logger.Panicf("error writing tar header %+v into %+v: %s", hdr, tw, err)
+		logger.Error("error writing tar header %+v into %+v: %s", hdr, tw, err)
 	}
 	if hdr.Typeflag == tar.TypeSymlink {
 	} else {
 		_, err = io.Copy(tw, r)
 	}
 	if err != nil {
-		logger.Panicf("error copying tar data %+v into %+v: %s", r, tw, err)
+		logger.Critical("error copying tar data %+v into %+v: %s", r, tw, err)
+		return
 	}
 	tw.Flush()
 	return
@@ -335,7 +342,7 @@ func writeInfo(tw *tar.Writer, info Info) (err error) {
 	hdr := &tar.Header{Name: info.Get(InfoPref+"Id") + SuffInfo, Mode: 0440,
 		Size: int64(length), Typeflag: tar.TypeReg}
 	FillHeader(hdr)
-	logger.Printf("writeInfo(%+v into %+v)", hdr, tw)
+	logger.Debug("writeInfo(%+v into %+v)", hdr, tw)
 	return WriteTar(tw, hdr, txt)
 }
 
@@ -345,7 +352,7 @@ func writeCompressed(tw *tar.Writer, fn string, info Info,
 	if sfh, err := os.Open(fn); err == nil {
 		defer sfh.Close()
 		if cfn, err := compressor.CompressToTemp(sfh, compressMethod); err == nil {
-			logger.Printf("compressed file: %s", cfn)
+			logger.Debug("compressed file: %s", cfn)
 			defer os.Remove(cfn)
 			if cfh, err := os.Open(cfn); err == nil {
 				if fi, err := cfh.Stat(); err == nil {
@@ -362,7 +369,7 @@ func writeCompressed(tw *tar.Writer, fn string, info Info,
 		}
 	}
 	if err != nil {
-		logger.Panicf("couldn't write %s into %s: %s", fn, tw, err)
+		logger.Critical("couldn't write %s into %s: %s", fn, tw, err)
 	}
 	return
 }
@@ -371,7 +378,7 @@ func writeCompressed(tw *tar.Writer, fn string, info Info,
 func AppendFile(tarfn string, info Info, fn string, compressMethod string) (pos uint64, err error) {
 	tw, fh, pos, err := OpenForAppend(tarfn)
 	if err != nil {
-		logger.Printf("OpenForAppend(%s): %s", tarfn, err)
+		logger.Error("OpenForAppend(%s): %s", tarfn, err)
 		return
 	}
 	defer fh.Close()
@@ -389,7 +396,7 @@ func AppendFile(tarfn string, info Info, fn string, compressMethod string) (pos 
 		}
 	}
 	if err != nil {
-		logger.Printf("AppendFile: %s", err)
+		logger.Error("AppendFile: %s", err)
 	} else {
 		// pos, _ := fh.Seek(0, 1); logger.Printf("E %+v pos: %d", fh, pos)
 		// tw.Flush()

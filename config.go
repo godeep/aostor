@@ -1,31 +1,31 @@
 // Copyright 2012 Tamás Gulácsi, UNO-SOFT Computing Ltd.
+//
+// All rights reserved.
+//
 // This file is part of aostor.
-
+//
 // Aostor is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
-
-// Foobar is distributed in the hope that it will be useful,
+//
+// Aostor is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU General Public License for more details.
-
+//
 // You should have received a copy of the GNU General Public License
-// along with Foobar.  If not, see <http://www.gnu.org/licenses/>.
+// along with Aostor.  If not, see <http://www.gnu.org/licenses/>.
 
 package aostor
 
 import (
-	//"code.google.com/p/goconf/conf"
-	"bufio"
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
 	"fmt"
 	"github.com/kless/goconfig/config"
 	"hash"
-	"log"
 	"os"
 	"strings"
 )
@@ -36,6 +36,7 @@ const (
 	DefaultIndexThreshold = 10               // How many index cdb should be merged
 	DefaultContentHash    = "sha1"
 	DefaultHostport       = ":8341"
+	DefaultLogConf        = "seelog.xml"
 	TestConfig            = `[dirs]
 base = /tmp/aostor
 staging = %(base)s/#(realm)s/staging
@@ -52,13 +53,15 @@ realms = test
 
 [hash]
 content = sha1
+
+[log]
+config = seelog.xml
 `
 )
 
 var (
 	ConfigFile = DefaultConfigFile
 	configs    = make(map[string]Config, 2) // configs cache
-	logger = log.New(bufio.NewWriter(os.Stderr), "aostor ", log.LstdFlags|log.Lshortfile)
 )
 
 // configuration variables, parsed
@@ -70,6 +73,7 @@ type Config struct {
 	Realms                       []string
 	ContentHash                  string
 	ContentHashFunc              func() hash.Hash
+	LogConf                      string
 }
 
 // reads config file (or ConfigFile if empty), replaces every #(realm)s with the
@@ -80,8 +84,12 @@ func ReadConf(fn string, realm string) (Config, error) {
 	if ok {
 		return c, nil
 	}
+	if LogIsDisabled() {
+		UseLoggerFromConfigFile(DefaultLogConf)
+	}
 	c, err := readConf(fn, realm)
 	if err != nil {
+		logger.Error("cannot open config: %s", err)
 		return Config{}, err
 	}
 	configs[k] = c
@@ -96,6 +104,14 @@ func readConf(fn string, realm string) (Config, error) {
 	conf, err := config.ReadDefault(fn)
 	if err != nil {
 		return c, err
+	}
+	logconf, err := conf.String("log", "config")
+	if err != nil {
+		fmt.Printf("cannot get log configuration: %s", err)
+		c.LogConf = DefaultLogConf
+	} else {
+		UseLoggerFromConfigFile(logconf)
+		c.LogConf = logconf
 	}
 
 	c.StagingDir, err = getDir(conf, "dirs", "staging", realm)
@@ -123,7 +139,7 @@ func readConf(fn string, realm string) (Config, error) {
 
 	i, err := conf.Int("threshold", "index")
 	if err != nil {
-		logger.Printf("cannot get threshold/index: %s", err)
+		logger.Warn("cannot get threshold/index: %s", err)
 		c.IndexThreshold = DefaultIndexThreshold
 	} else {
 		c.IndexThreshold = uint(i)
@@ -131,7 +147,7 @@ func readConf(fn string, realm string) (Config, error) {
 
 	i, err = conf.Int("threshold", "tar")
 	if err != nil {
-		logger.Printf("cannot get threshold/tar: %s", err)
+		logger.Warn("cannot get threshold/tar: %s", err)
 		c.TarThreshold = DefaultTarThreshold
 	} else {
 		c.TarThreshold = uint64(i)
@@ -139,7 +155,7 @@ func readConf(fn string, realm string) (Config, error) {
 
 	hp, err := conf.String("http", "hostport")
 	if err != nil {
-		logger.Printf("cannot get hostport: %s", err)
+		logger.Warn("cannot get hostport: %s", err)
 		c.Hostport = DefaultHostport
 	} else {
 		c.Hostport = hp
@@ -147,14 +163,14 @@ func readConf(fn string, realm string) (Config, error) {
 
 	realms, err := conf.String("http", "realms")
 	if err != nil {
-		logger.Printf("cannot get realms: %s", err)
+		logger.Warn("cannot get realms: %s", err)
 	} else {
 		c.Realms = strings.Split(realms, ",")
 	}
 
 	hash, err := conf.String("hash", "content")
 	if err != nil {
-		logger.Printf("cannot get content hash: %s", err)
+		logger.Warn("cannot get content hash: %s", err)
 		hash = DefaultContentHash
 		err = nil
 	}

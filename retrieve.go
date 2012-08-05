@@ -1,18 +1,21 @@
 // Copyright 2012 Tamás Gulácsi, UNO-SOFT Computing Ltd.
+//
+// All rights reserved.
+//
 // This file is part of aostor.
-
+//
 // Aostor is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
-
-// Foobar is distributed in the hope that it will be useful,
+//
+// Aostor is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU General Public License for more details.
-
+//
 // You should have received a copy of the GNU General Public License
-// along with Foobar.  If not, see <http://www.gnu.org/licenses/>.
+// along with Aostor.  If not, see <http://www.gnu.org/licenses/>.
 
 package aostor
 
@@ -48,7 +51,7 @@ var tarFiles = map[string](map[string]string){}
 func Get(realm string, uuid string) (info Info, reader io.Reader, err error) {
 	conf, err := ReadConf("", realm)
 	if err != nil {
-		logger.Printf("cannot read config: %s", err)
+		logger.Error("cannot read config: %s", err)
 		return
 	}
 	// L00
@@ -57,7 +60,7 @@ func Get(realm string, uuid string) (info Info, reader io.Reader, err error) {
 		//logger.Printf("found at staging: %s", info)
 		return
 	} else if !os.IsNotExist(err) {
-		logger.Printf("error searching at staging: %s", err)
+		logger.Error("error searching at staging: %s", err)
 		return
 	}
 
@@ -78,13 +81,11 @@ func Get(realm string, uuid string) (info Info, reader io.Reader, err error) {
 func FillCaches(force bool) error {
 	config, err := ReadConf("", "")
 	if err != nil {
-		logger.Printf("cannot read config: %s", err)
 		return err
 	}
 	for _, realm := range config.Realms {
 		conf, err := ReadConf("", realm)
 		if err != nil {
-			logger.Printf("cannot read config: %s", err)
 			return err
 		}
 		fillCdbCache(realm, conf.IndexDir, force)
@@ -105,10 +106,10 @@ func fillCdbCache(realm string, indexdir string, force bool) {
 	pat := indexdir + "/L00/*.cdb"
 	files, err := filepath.Glob(pat)
 	if err != nil {
-		logger.Panicf("cannot list %s: %s", pat, err)
+		logger.Error("cannot list %s: %s", pat, err)
 	}
 	cf := [2][]string{files, make([]string, 0, 100)}
-	logger.Printf("fillCdbCache(%s): %d", realm, len(cdbFiles[realm][0]))
+	logger.Info("fillCdbCache(%s): %d", realm, len(cdbFiles[realm][0]))
 
 	for level := 1; level < 1000; level++ {
 		dn := indexdir + fmt.Sprintf("/L%02d", level)
@@ -120,7 +121,7 @@ func fillCdbCache(realm string, indexdir string, force bool) {
 		pat = dn + "/*.cdb"
 		files, err = filepath.Glob(pat)
 		if err != nil {
-			logger.Panicf("cannot list %s: %s", pat, err)
+			logger.Error("cannot list %s: %s", pat, err)
 		}
 		// logger.Printf("%s => %+v", dn, files)
 		cf[1] = append(cf[1], files...)
@@ -166,29 +167,29 @@ func fillTarCache(realm string, tardir string, force bool) {
 		return nil
 	})
 	tarFiles[realm] = tf
-	logger.Printf("fillTarCache(%s): %d", realm, len(tarFiles[realm]))
+	logger.Info("fillTarCache(%s): %d", realm, len(tarFiles[realm]))
 	// logger.Printf("fillTarCache(%s, %s, %s): %+v",
 	// 	realm, tardir, force, tarFiles)
 }
 
 func findAtLevelHigher(realm string, uuid string, tardir string) (info Info, reader io.Reader, err error) {
 	var tarfn_b string
-	logger.Printf("findAtLevelHigher(%s, %s) files=%+v", realm, uuid, cdbFiles[realm][1])
-	logger.Printf("%+v", cdbFiles)
+	logger.Debug("findAtLevelHigher(%s, %s) files=%+v", realm, uuid, cdbFiles[realm][1])
+	logger.Trace("%+v", cdbFiles)
 	for _, cdb_fn := range cdbFiles[realm][1] {
 		db, err := cdb.Open(cdb_fn)
 		if err != nil {
 			return info, nil, err
 		}
 		indx, err := db.Data(StrToBytes(uuid))
-		logger.Printf("findAtLevelHigher(%s, %s) @ %s ? (%s, %s)",
+		logger.Debug("findAtLevelHigher(%s, %s) @ %s ? (%s, %s)",
 			realm, uuid, cdb_fn, indx, err)
 		switch err {
 		case nil:
 			data, err := db.Data(indx)
 			db.Close()
 			if err != nil {
-				logger.Printf("cannot get %s from %s: %s", indx, cdb_fn, err)
+				logger.Error("cannot get %s from %s: %s", indx, cdb_fn, err)
 				return info, nil, err
 			}
 			tarfn_b = BytesToStr(data)
@@ -201,7 +202,7 @@ func findAtLevelHigher(realm string, uuid string, tardir string) (info Info, rea
 			return info, nil, err
 		}
 		db.Close()
-		logger.Printf("searching %s at %s: %s %s", uuid, tardir, tarfn_b, err)
+		logger.Debug("searching %s at %s: %s %s", uuid, tardir, tarfn_b, err)
 	}
 	if err != nil {
 		if err == io.EOF {
@@ -211,14 +212,14 @@ func findAtLevelHigher(realm string, uuid string, tardir string) (info Info, rea
 	}
 	if tarfn_b != "" {
 		tarfn, ok := tarFiles[realm][tarfn_b]
-		logger.Printf("tarfn_b=%s => %s (%s)", tarfn_b, tarfn, ok)
+		logger.Trace("tarfn_b=%s => %s (%s)", tarfn_b, tarfn, ok)
 		if !ok {
-			logger.Printf("cannot find tarfile for %s!", tarfn)
+			logger.Error("cannot find tarfile for %s!", tarfn)
 			err = NotFound
 			return
 		}
 		info, reader, err = GetFromCdb(uuid, tarfn+".cdb")
-		logger.Printf("found %s/%s in %s(%s): %s",
+		logger.Debug("found %s/%s in %s(%s): %s",
 			realm, uuid, tarfn, tarfn_b, info)
 	} else {
 		err = NotFound
@@ -230,24 +231,24 @@ func GetFromCdb(uuid string, cdb_fn string) (info Info, reader io.Reader, err er
 	db, err := cdb.Open(cdb_fn)
 	defer db.Close()
 	if err != nil {
-		logger.Printf("cannot open %s: %s", cdb_fn, err)
+		logger.Error("cannot open %s: %s", cdb_fn, err)
 		return
 	}
 	data, err := db.Data(StrToBytes(uuid))
 	if err != nil {
-		logger.Printf("cannot find %s: %s", uuid, err)
+		logger.Error("cannot find %s: %s", uuid, err)
 		return
 	}
 	info, err = ReadInfo(bytes.NewReader(data))
 	if err != nil {
-		logger.Printf("cannot read info from %s: %s", data, err)
+		logger.Error("cannot read info from %s: %s", data, err)
 		return
 	}
 	ocdb := FindLinkOrigin(cdb_fn)
 	//logger.Printf("cdb_fn=%s == %s", cdb_fn, ocdb)
 	tarfn := ocdb[:len(ocdb)-4]
 	reader, err = ReadItem(tarfn, int64(info.Dpos))
-	logger.Printf("found %s in %s: tarfn=%s, info=%s, err=%s",
+	logger.Debug("found %s in %s: tarfn=%s, info=%s, err=%s",
 		uuid, cdb_fn, tarfn, info, err)
 	return
 }
@@ -264,22 +265,22 @@ func fileExists(fn string) bool {
 }
 
 func findAtLevelZero(realm string, uuid string) (info Info, reader io.Reader, err error) {
-	logger.Printf("files at %s: %s", realm, cdbFiles[realm][0])
+	logger.Debug("files at %s: %s", realm, cdbFiles[realm][0])
 	for _, cdb_fn := range cdbFiles[realm][0] {
 		info, reader, err = GetFromCdb(uuid, cdb_fn)
 		switch err {
 		case nil:
-			logger.Printf("found %s in %s: %s", uuid, cdb_fn, info)
+			logger.Debug("found %s in %s: %s", uuid, cdb_fn, info)
 			return
 		case io.EOF:
 			continue
 		default:
-			logger.Printf("error inf GetFromCdb(%s, %s): %s", uuid, cdb_fn, err)
+			logger.Error("error inf GetFromCdb(%s, %s): %s", uuid, cdb_fn, err)
 			return info, nil, err
 		}
 	}
 
-	logger.Printf("findAtLevelZero(%s, %s): %s", realm, uuid, info)
+	logger.Debug("findAtLevelZero(%s, %s): %s", realm, uuid, info)
 	return info, nil, NotFound
 }
 
@@ -287,7 +288,7 @@ func findAtStaging(uuid string, path string) (info Info, reader io.Reader, err e
 	ifh, err := os.Open(path + "/" + uuid + SuffInfo)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			logger.Printf("findAtStaging(%s) other error: %s", uuid, err)
+			logger.Error("findAtStaging(%s) other error: %s", uuid, err)
 			return
 		}
 		return
@@ -335,7 +336,7 @@ func FindLinkOrigin(fn string) string {
 		}
 		fn, err = os.Readlink(fn)
 		if err != nil {
-			logger.Printf("error following link of %s: %s", fn, err)
+			logger.Error("error following link of %s: %s", fn, err)
 			break
 		}
 	}

@@ -6,31 +6,29 @@
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 
-// Foobar is distributed in the hope that it will be useful,
+// Aostor is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU General Public License for more details.
 
 // You should have received a copy of the GNU General Public License
-// along with Foobar.  If not, see <http://www.gnu.org/licenses/>.
+// along with Aostor.  If not, see <http://www.gnu.org/licenses/>.
 
 package main
 
 import (
 	"flag"
-	"log"
-	"os"
+	"fmt"
 	"unosoft.hu/aostor"
 )
 
-var logger = log.New(os.Stderr, "tarhelper ", log.LstdFlags|log.Lshortfile)
-
 func main() {
+	defer aostor.FlushLog()
 	flag.Parse()
 	tarfn, dirname := flag.Arg(0), flag.Arg(1)
 	if err := aostor.CreateTar(tarfn, dirname, true); err != nil {
-		logger.Printf("ERROR: %s", err)
+		fmt.Printf("ERROR: %s", err)
 	} else {
-		logger.Println("OK")
+		fmt.Println("OK")
 	}
 }
