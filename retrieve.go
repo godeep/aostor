@@ -11,17 +11,14 @@ import (
 	"github.com/tgulacsi/go-cdb"
 	"io"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"strings"
-	"syscall"
 )
 
 var NotFound = errors.New("Not Found")
 
 var cdbFiles = map[string][2][]string{}
 var tarFiles = map[string](map[string]string){}
-var sigchan chan os.Signal
 
 //returns the associated info and data of a given uuid in a given realm
 //  1. checks staging area
@@ -79,28 +76,11 @@ func FillCaches(force bool) error {
 		fillCdbCache(realm, conf.IndexDir, force)
 		fillTarCache(realm, conf.TarDir, force)
 	}
-	if sigchan == nil {
-		sigchan = make(chan os.Signal, 1)
-		signal.Notify(sigchan, syscall.SIGUSR1)
-		go recvChangeSig(sigchan)
-	}
 	return nil
-}
-
-func recvChangeSig(sigchan <-chan os.Signal) {
-	for {
-		_, ok := <-sigchan
-		if !ok {
-			break
-		}
-		logger.Printf("received Change signal, calling FillCaches")
-		FillCaches(true)
-	}
 }
 
 //fills the (cached) cdb files list. Rereads if force is true
 func fillCdbCache(realm string, indexdir string, force bool) {
-	var cf [2][]string
 	if !force {
 		cf, ok := cdbFiles[realm]
 		if ok && (len(cf[0]) > 0 || len(cf[1]) > 0) {
@@ -113,12 +93,14 @@ func fillCdbCache(realm string, indexdir string, force bool) {
 	if err != nil {
 		logger.Panicf("cannot list %s: %s", pat, err)
 	}
-	cdbFiles[realm] = [2][]string{files, make([]string, 0, 100)}
-	cf = cdbFiles[realm]
+	cf := [2][]string{files, make([]string, 0, 100)}
+	logger.Printf("fillCdbCache(%s): %d", realm, len(cdbFiles[realm][0]))
 
-	for level := 1; level < 1000 && err == io.EOF; level++ {
+	for level := 1; level < 1000; level++ {
 		dn := indexdir + fmt.Sprintf("/L%02d", level)
+		// logger.Printf("dn: %s", dn)
 		if !fileExists(dn) {
+			// logger.Printf("%s not exists", dn)
 			break
 		}
 		pat = dn + "/*.cdb"
@@ -126,8 +108,13 @@ func fillCdbCache(realm string, indexdir string, force bool) {
 		if err != nil {
 			logger.Panicf("cannot list %s: %s", pat, err)
 		}
+		// logger.Printf("%s => %+v", dn, files)
 		cf[1] = append(cf[1], files...)
 	}
+	cdbFiles[realm] = cf
+	// logger.Printf("fillCdbCache(%s): %d", realm, len(cdbFiles[realm][1]))
+	// logger.Printf("%+v", cf)
+	// logger.Printf("%+v", cdbFiles[realm])
 	// logger.Printf("fillCdbCache(%s, %s, %s): %+v",
 	// 	realm, indexdir, force, cdbFiles)
 }
@@ -166,18 +153,23 @@ func fillTarCache(realm string, tardir string, force bool) {
 		return nil
 	})
 	tarFiles[realm] = tf
+	logger.Printf("fillTarCache(%s): %d", realm, len(tarFiles[realm]))
 	// logger.Printf("fillTarCache(%s, %s, %s): %+v",
 	// 	realm, tardir, force, tarFiles)
 }
 
 func findAtLevelHigher(realm string, uuid string, tardir string) (info Info, reader io.Reader, err error) {
 	var tarfn_b string
+	logger.Printf("findAtLevelHigher(%s, %s) files=%+v", realm, uuid, cdbFiles[realm][1])
+	logger.Printf("%+v", cdbFiles)
 	for _, cdb_fn := range cdbFiles[realm][1] {
 		db, err := cdb.Open(cdb_fn)
 		if err != nil {
 			return info, nil, err
 		}
 		indx, err := db.Data(StrToBytes(uuid))
+		logger.Printf("findAtLevelHigher(%s, %s) @ %s ? (%s, %s)",
+			realm, uuid, cdb_fn, indx, err)
 		switch err {
 		case nil:
 			data, err := db.Data(indx)

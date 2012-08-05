@@ -5,15 +5,17 @@ package main
 import _ "net/http/pprof" // pprof
 
 import (
-	"net/http"
-	"unosoft.hu/aostor"
-	"log"
 	"flag"
-	"os"
 	"io"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
 	"fmt"
-	"time"
 	"strings"
+	"syscall"
+	"time"
+	"unosoft.hu/aostor"
 	)
 
 var logger = log.New(os.Stderr, "server ", log.LstdFlags|log.Lshortfile)
@@ -46,8 +48,24 @@ func main() {
 		WriteTimeout: 60 * time.Second,
 		MaxHeaderBytes: 1 << 20, // 1Mb
 	}
+	sigchan := make(chan os.Signal, 1)
+	signal.Notify(sigchan, syscall.SIGUSR1)
+	go recvChangeSig(sigchan)
+
 	logger.Printf("starting server on %s", *s)
 	logger.Fatal(s.ListenAndServe())
+}
+
+func recvChangeSig(sigchan <-chan os.Signal) {
+	// aostor.FillCaches(true)
+	for {
+		_, ok := <-sigchan
+		if !ok {
+			break
+		}
+		logger.Printf("received Change signal, calling FillCaches")
+		aostor.FillCaches(true)
+	}
 }
 
 func baseHandler(w http.ResponseWriter, r *http.Request) {
