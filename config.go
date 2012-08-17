@@ -20,7 +20,6 @@
 package aostor
 
 import (
-	"bufio"
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
@@ -29,7 +28,6 @@ import (
 	"hash"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -41,7 +39,6 @@ const (
 	DefaultContentHash    = "sha1"
 	DefaultHostport       = ":8341"
 	DefaultLogConf        = "seelog.xml"
-	DefaultCommandPipe    = "command.pipe"
 	TestConfig            = `[dirs]
 base = /tmp/aostor
 staging = %(base)s/#(realm)s/staging
@@ -79,7 +76,6 @@ type Config struct {
 	ContentHash                  string
 	ContentHashFunc              func() hash.Hash
 	LogConf                      string
-	Commands                     Controller
 }
 
 // reads config file (or ConfigFile if empty), replaces every #(realm)s with the
@@ -219,40 +215,6 @@ func readConf(fn string, realm string, common Config) (Config, error) {
 		c.ContentHash = "sha1"
 	}
 
-	if common.Commands != nil {
-		c.Commands = common.Commands
-	} else {
-		pipefn, err := conf.String("http", "command_pipe")
-		if err != nil {
-			logger.Warn("cannot get command_pipe: %s", err)
-			pipefn = filepath.Dir(c.StagingDir) + "/" + DefaultCommandPipe
-			if realm != "" {
-				pipefn = strings.Replace(pipefn, "/" + realm + "/", "/#(realm)s/", -1)
-			}
-		}
-		if pipefn != "" {
-			pipefn = strings.Replace(strings.Replace(pipefn, "#(realm)s", "", -1), "//", "/", -1) // no realm
-			logger.Info("pipefn=%s", pipefn)
-			if fifoExists(pipefn) {
-				logger.Info("%s ok", pipefn)
-			} else {
-				logger.Info("creating fifo %s", pipefn)
-				out, err := exec.Command("mkfifo", pipefn).CombinedOutput()
-				if err != nil {
-					logger.Error("mkfifo %s: %s\n%s", pipefn, err, out)
-					pipefn = ""
-				}
-			}
-			if pipefn != "" {
-				c.Commands, err = pipeChan(pipefn)
-				if err != nil {
-					logger.Error("cannot open %s for channel: %s", pipefn, err)
-					c.Commands = nil
-				}
-			}
-		}
-	}
-
 	return c, err
 }
 
@@ -268,51 +230,6 @@ func getDir(conf *config.Config, section string, option string, realm string) (s
 		}
 	}
 	return path, nil
-}
-
-type ControlCommand int
-
-const (
-	INDEX_RESET ControlCommand = 1 << iota
-)
-
-type Controller chan ControlCommand
-
-func (c Controller) IndexReset() {
-	select {
-	case c <- INDEX_RESET:
-		logger.Info("sent RESET signal")
-	default:
-		logger.Warn("couldn't send RESET signal")
-	}
-}
-
-func pipeChan(pipefn string) (Controller, error) {
-	fh, err := os.OpenFile(pipefn, os.O_RDWR, 0600)
-	if err != nil {
-		return nil, err
-	}
-	c := make(Controller, 1)
-	go func() {
-		defer fh.Close()
-		r := bufio.NewReader(fh)
-		for {
-			line, _, err := r.ReadLine()
-			logger.Info("Read %s from %s (%s)", line, fh, err)
-			if err == nil {
-				switch BytesToStr(line) {
-				case "RESET":
-					c.IndexReset()
-				default:
-					logger.Warn("Unknown command %s", line)
-					fh.Write(StrToBytes("UNKNOWN\n"))
-				}
-			} else if err != io.EOF {
-				logger.Error("error reading %s: %s", fh, err)
-			}
-		}
-	}()
-	return c, nil
 }
 
 func fileMode(fn string) os.FileMode {
