@@ -80,6 +80,7 @@ func Get(realm string, uuid string) (info Info, reader io.Reader, err error) {
 //fills caches (reads tar files and cdb files, caches path)
 func FillCaches(force bool) error {
 	config, err := ReadConf("", "")
+	logger.Info("FillCaches on %s", config)
 	if err != nil {
 		return err
 	}

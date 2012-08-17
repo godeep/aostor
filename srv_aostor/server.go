@@ -17,22 +17,21 @@
 // Append-Only Storage HTTP server
 package main
 
-
 import _ "net/http/pprof" // pprof
 
 import (
 	"flag"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
-	"fmt"
 	"strings"
 	"syscall"
 	"time"
 	"unosoft.hu/aostor"
-	)
+)
 
 var logger = log.New(os.Stderr, "server ", log.LstdFlags|log.Lshortfile)
 
@@ -40,7 +39,7 @@ func main() {
 	defer aostor.FlushLog()
 	configfile := flag.String("c", aostor.ConfigFile, "config file")
 	hostport := flag.String("hostport", "",
-		"host:port, default=" + aostor.DefaultHostport)
+		"host:port, default="+aostor.DefaultHostport)
 	flag.Parse()
 	conf, err := aostor.ReadConf(*configfile, "")
 	if err != nil {
@@ -49,24 +48,30 @@ func main() {
 		aostor.ConfigFile = *configfile
 		logger.Printf("set configfile: %s", aostor.ConfigFile)
 	}
+	config, err := aostor.ReadConf("", "")
+	if err != nil {
+		logger.Printf("Cannot read config %s: %s", aostor.ConfigFile, err)
+	}
 
 	http.HandleFunc("/", indexHandler)
-	for _, realm := range(conf.Realms) {
-		http.HandleFunc("/" + realm + "/", baseHandler)
-		http.HandleFunc("/" + realm + "/up", upHandler)
+	for _, realm := range conf.Realms {
+		http.HandleFunc("/"+realm+"/", baseHandler)
+		http.HandleFunc("/"+realm+"/up", upHandler)
 	}
 
 	if *hostport == "" {
 		hostport = &conf.Hostport
 	}
 	s := &http.Server{
-		Addr: *hostport,
-		ReadTimeout: 30 * time.Second,
-		WriteTimeout: 60 * time.Second,
+		Addr:           *hostport,
+		ReadTimeout:    30 * time.Second,
+		WriteTimeout:   60 * time.Second,
 		MaxHeaderBytes: 1 << 20, // 1Mb
 	}
 	sigchan := make(chan os.Signal, 1)
 	signal.Notify(sigchan, syscall.SIGUSR1)
+
+	go recvCommand(config.Commands)
 	go recvChangeSig(sigchan)
 
 	logger.Printf("starting server on %s", *s)
@@ -82,6 +87,22 @@ func recvChangeSig(sigchan <-chan os.Signal) {
 		}
 		logger.Printf("received Change signal, calling FillCaches")
 		aostor.FillCaches(true)
+	}
+}
+
+func recvCommand(controller <-chan aostor.ControlCommand) {
+	for {
+		cmd, ok := <-controller
+		if !ok {
+			break
+		}
+		logger.Printf("received %s command")
+		switch cmd {
+		case aostor.INDEX_RESET:
+			aostor.FillCaches(true)
+		default:
+			logger.Printf("unknown command %v", cmd)
+		}
 	}
 }
 
@@ -134,7 +155,7 @@ func upHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		logger.Printf("realm=%s path=%s up=%s", realm, path, up)
 		if up != "up" {
-			http.Error(w, "403 Bad Request: unknown path " + up, 403)
+			http.Error(w, "403 Bad Request: unknown path "+up, 403)
 		} else {
 			file, header, err := r.FormFile("upfile")
 			info := aostor.Info{}
@@ -147,7 +168,7 @@ func upHandler(w http.ResponseWriter, r *http.Request) {
 				if err != nil {
 					http.Error(w, fmt.Sprintf("ERROR: %s", err), 500)
 				} else {
-					w.Header().Add(aostor.InfoPref + "Key", key)
+					w.Header().Add(aostor.InfoPref+"Key", key)
 					w.Write(aostor.StrToBytes(key))
 				}
 			}

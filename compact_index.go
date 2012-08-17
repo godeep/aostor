@@ -188,6 +188,7 @@ func mergeCdbs(dest_cdb_fn string, source_cdb_files []string, level uint, thresh
 			booknum++
 			//FIXME: store only the relative path?
 			logger.Debug("put(%s,%s)", book_id, sfn)
+			// logger.Debug("%s", sfn[:len(sfn)-4])
 			cw.PutPair(book_id, StrToBytes(filepath.Base(sfn[:len(sfn)-4])))
 		} else {
 			books = make(map[string]string, threshold<<(3*level))

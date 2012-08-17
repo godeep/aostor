@@ -59,12 +59,16 @@ func CompactStaging(realm string) error {
 				return err
 			}
 			tarfn := realm + "-" + strNow()[:15] + "-" + uuid + ".tar"
-			if err = CreateTar(conf.TarDir+"/"+tarfn, conf.StagingDir, true); err != nil {
+			if err = CreateTar(conf.TarDir+"/"+tarfn, conf.StagingDir,
+				true, conf.Commands); err != nil {
 				return err
 			}
 			if err = os.Symlink(conf.TarDir+"/"+tarfn+".cdb", conf.IndexDir+"/L00/"+tarfn+".cdb"); err != nil {
 				return err
 			}
+			// if err = CompactIndices(realm, 0); err != nil{
+			// 	return err
+			// }
 			break
 		}
 	}
@@ -146,7 +150,7 @@ type fElt struct {
 }
 
 //Moves files from the given directory into a given tar file
-func CreateTar(tarfn string, dirname string, move bool) error {
+func CreateTar(tarfn string, dirname string, move bool, controller Controller) error {
 	var tbd []string
 	if move {
 		tbd = make([]string, 0)
@@ -247,7 +251,10 @@ func CreateTar(tarfn string, dirname string, move bool) error {
 	if err != nil {
 		logger.Error("cdbMake error: %s", err)
 	}
-	if move && err == nil {
+	if move && err == nil && len(tbd) > 0 {
+		if controller != nil {
+			controller.IndexReset()
+		}
 		for _, fn := range tbd {
 			os.Remove(fn)
 		}

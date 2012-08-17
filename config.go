@@ -20,13 +20,17 @@
 package aostor
 
 import (
+	"bufio"
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
 	"fmt"
 	"github.com/kless/goconfig/config"
 	"hash"
+	"io"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -37,6 +41,7 @@ const (
 	DefaultContentHash    = "sha1"
 	DefaultHostport       = ":8341"
 	DefaultLogConf        = "seelog.xml"
+	DefaultCommandPipe    = "command.pipe"
 	TestConfig            = `[dirs]
 base = /tmp/aostor
 staging = %(base)s/#(realm)s/staging
@@ -74,12 +79,14 @@ type Config struct {
 	ContentHash                  string
 	ContentHashFunc              func() hash.Hash
 	LogConf                      string
+	Commands                     Controller
 }
 
 // reads config file (or ConfigFile if empty), replaces every #(realm)s with the
 // given realm, if given
 func ReadConf(fn string, realm string) (Config, error) {
-	k := fn + "#" + realm
+	k_def := fn + "#"
+	k := k_def + realm
 	c, ok := configs[k]
 	if ok {
 		return c, nil
@@ -87,16 +94,19 @@ func ReadConf(fn string, realm string) (Config, error) {
 	if LogIsDisabled() {
 		UseLoggerFromConfigFile(DefaultLogConf)
 	}
-	c, err := readConf(fn, realm)
+	c, err := readConf(fn, realm, configs[k_def])
 	if err != nil {
 		logger.Error("cannot open config: %s", err)
 		return Config{}, err
+	}
+	if _, ok := configs[k_def]; !ok {
+		configs[k_def] = c
 	}
 	configs[k] = c
 	return c, nil
 }
 
-func readConf(fn string, realm string) (Config, error) {
+func readConf(fn string, realm string, common Config) (Config, error) {
 	var c Config
 	if fn == "" {
 		fn = ConfigFile
@@ -105,13 +115,17 @@ func readConf(fn string, realm string) (Config, error) {
 	if err != nil {
 		return c, err
 	}
-	logconf, err := conf.String("log", "config")
-	if err != nil {
-		fmt.Printf("cannot get log configuration: %s", err)
-		c.LogConf = DefaultLogConf
+	if common.LogConf != "" {
+		c.LogConf = common.LogConf
 	} else {
-		UseLoggerFromConfigFile(logconf)
-		c.LogConf = logconf
+		logconf, err := conf.String("log", "config")
+		if err != nil {
+			fmt.Printf("cannot get log configuration: %s", err)
+			c.LogConf = DefaultLogConf
+		} else {
+			UseLoggerFromConfigFile(logconf)
+			c.LogConf = logconf
+		}
 	}
 
 	c.StagingDir, err = getDir(conf, "dirs", "staging", realm)
@@ -137,42 +151,62 @@ func readConf(fn string, realm string) (Config, error) {
 		return c, err
 	}
 
-	i, err := conf.Int("threshold", "index")
-	if err != nil {
-		logger.Warn("cannot get threshold/index: %s", err)
-		c.IndexThreshold = DefaultIndexThreshold
+	if common.IndexThreshold > 0 {
+		c.IndexThreshold = common.IndexThreshold
 	} else {
-		c.IndexThreshold = uint(i)
+		i, err := conf.Int("threshold", "index")
+		if err != nil {
+			logger.Warn("cannot get threshold/index: %s", err)
+			c.IndexThreshold = DefaultIndexThreshold
+		} else {
+			c.IndexThreshold = uint(i)
+		}
 	}
 
-	i, err = conf.Int("threshold", "tar")
-	if err != nil {
-		logger.Warn("cannot get threshold/tar: %s", err)
-		c.TarThreshold = DefaultTarThreshold
+	if common.TarThreshold > 0 {
+		c.TarThreshold = common.TarThreshold
 	} else {
-		c.TarThreshold = uint64(i)
+		i, err := conf.Int("threshold", "tar")
+		if err != nil {
+			logger.Warn("cannot get threshold/tar: %s", err)
+			c.TarThreshold = DefaultTarThreshold
+		} else {
+			c.TarThreshold = uint64(i)
+		}
 	}
 
-	hp, err := conf.String("http", "hostport")
-	if err != nil {
-		logger.Warn("cannot get hostport: %s", err)
-		c.Hostport = DefaultHostport
+	if common.Hostport != "" {
+		c.Hostport = common.Hostport
 	} else {
-		c.Hostport = hp
+		hp, err := conf.String("http", "hostport")
+		if err != nil {
+			logger.Warn("cannot get hostport: %s", err)
+			c.Hostport = DefaultHostport
+		} else {
+			c.Hostport = hp
+		}
 	}
 
-	realms, err := conf.String("http", "realms")
-	if err != nil {
-		logger.Warn("cannot get realms: %s", err)
+	if len(common.Realms) > 0 {
+		c.Realms = common.Realms
 	} else {
-		c.Realms = strings.Split(realms, ",")
+		realms, err := conf.String("http", "realms")
+		if err != nil {
+			logger.Warn("cannot get realms: %s", err)
+		} else {
+			c.Realms = strings.Split(realms, ",")
+		}
 	}
 
-	hash, err := conf.String("hash", "content")
-	if err != nil {
-		logger.Warn("cannot get content hash: %s", err)
-		hash = DefaultContentHash
-		err = nil
+	hash := DefaultContentHash
+	if common.ContentHash != "" {
+		hash = common.ContentHash
+	} else {
+		hash, err = conf.String("hash", "content")
+		if err != nil {
+			logger.Warn("cannot get content hash: %s", err)
+			err = nil
+		}
 	}
 	c.ContentHash = hash
 	switch hash {
@@ -183,6 +217,40 @@ func readConf(fn string, realm string) (Config, error) {
 	default:
 		c.ContentHashFunc = sha1.New
 		c.ContentHash = "sha1"
+	}
+
+	if common.Commands != nil {
+		c.Commands = common.Commands
+	} else {
+		pipefn, err := conf.String("http", "command_pipe")
+		if err != nil {
+			logger.Warn("cannot get command_pipe: %s", err)
+			pipefn = filepath.Dir(c.StagingDir) + "/" + DefaultCommandPipe
+			if realm != "" {
+				pipefn = strings.Replace(pipefn, "/" + realm + "/", "/#(realm)s/", -1)
+			}
+		}
+		if pipefn != "" {
+			pipefn = strings.Replace(strings.Replace(pipefn, "#(realm)s", "", -1), "//", "/", -1) // no realm
+			logger.Info("pipefn=%s", pipefn)
+			if fifoExists(pipefn) {
+				logger.Info("%s ok", pipefn)
+			} else {
+				logger.Info("creating fifo %s", pipefn)
+				out, err := exec.Command("mkfifo", pipefn).CombinedOutput()
+				if err != nil {
+					logger.Error("mkfifo %s: %s\n%s", pipefn, err, out)
+					pipefn = ""
+				}
+			}
+			if pipefn != "" {
+				c.Commands, err = pipeChan(pipefn)
+				if err != nil {
+					logger.Error("cannot open %s for channel: %s", pipefn, err)
+					c.Commands = nil
+				}
+			}
+		}
 	}
 
 	return c, err
@@ -200,4 +268,87 @@ func getDir(conf *config.Config, section string, option string, realm string) (s
 		}
 	}
 	return path, nil
+}
+
+type ControlCommand int
+
+const (
+	INDEX_RESET ControlCommand = 1 << iota
+)
+
+type Controller chan ControlCommand
+
+func (c Controller) IndexReset() {
+	select {
+	case c <- INDEX_RESET:
+		logger.Info("sent RESET signal")
+	default:
+		logger.Warn("couldn't send RESET signal")
+	}
+}
+
+func pipeChan(pipefn string) (Controller, error) {
+	fh, err := os.OpenFile(pipefn, os.O_RDWR, 0600)
+	if err != nil {
+		return nil, err
+	}
+	c := make(Controller, 1)
+	go func() {
+		defer fh.Close()
+		r := bufio.NewReader(fh)
+		for {
+			line, _, err := r.ReadLine()
+			logger.Info("Read %s from %s (%s)", line, fh, err)
+			if err == nil {
+				switch BytesToStr(line) {
+				case "RESET":
+					c.IndexReset()
+				default:
+					logger.Warn("Unknown command %s", line)
+					fh.Write(StrToBytes("UNKNOWN\n"))
+				}
+			} else if err != io.EOF {
+				logger.Error("error reading %s: %s", fh, err)
+			}
+		}
+	}()
+	return c, nil
+}
+
+func fileMode(fn string) os.FileMode {
+	if fh, err := os.Open(fn); err == nil {
+		if fi, err := fh.Stat(); err == nil {
+			return fi.Mode()
+		}
+	}
+	return 0
+}
+
+func fifoExists(pipefn string) bool {
+	dh, err := os.Open(filepath.Dir(pipefn))
+	if err != nil {
+		logger.Error("cannot open directory of %s: %s", pipefn, err)
+		return false
+	}
+	bn := filepath.Base(pipefn)
+	var mode os.FileMode
+	for {
+		files, err := dh.Readdir(1024)
+		if err == io.EOF {
+			break
+		}
+		for _, fi := range files {
+			if fi.Name() == bn {
+				mode = fi.Mode()
+				logger.Trace("mode=%v", mode)
+				if mode&os.ModeNamedPipe == 0 {
+					logger.Warn("command_pipe=%s, but that is not a pipe!", pipefn)
+					return false
+				} else {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
