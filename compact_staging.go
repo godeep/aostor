@@ -29,8 +29,10 @@ import (
 	"strings"
 )
 
+type NotifyFunc func()
+
 // compacts staging dir: moves info and data files to tar
-func CompactStaging(realm string) error {
+func CompactStaging(realm string, onChange NotifyFunc) error {
 	conf, err := ReadConf("", realm)
 	if err != nil {
 		return err
@@ -60,15 +62,19 @@ func CompactStaging(realm string) error {
 			}
 			tarfn := realm + "-" + strNow()[:15] + "-" + uuid + ".tar"
 			if err = CreateTar(conf.TarDir+"/"+tarfn, conf.StagingDir,
-				true); err != nil {
+					true, onChange); err != nil {
 				return err
 			}
-			if err = os.Symlink(conf.TarDir+"/"+tarfn+".cdb", conf.IndexDir+"/L00/"+tarfn+".cdb"); err != nil {
+			if err = os.Symlink(conf.TarDir+"/"+tarfn+".cdb",
+					conf.IndexDir+"/L00/"+tarfn+".cdb"); err != nil {
 				return err
 			}
-			// if err = CompactIndices(realm, 0); err != nil{
-			// 	return err
-			// }
+			if onChange != nil {
+				onChange()
+			}
+			if err = CompactIndices(realm, 0); err != nil{
+				return err
+			}
 			break
 		}
 	}
@@ -150,7 +156,7 @@ type fElt struct {
 }
 
 //Moves files from the given directory into a given tar file
-func CreateTar(tarfn string, dirname string, move bool) error {
+func CreateTar(tarfn string, dirname string, move bool, onChange NotifyFunc) error {
 	var tbd []string
 	if move {
 		tbd = make([]string, 0)
@@ -237,7 +243,7 @@ func CreateTar(tarfn string, dirname string, move bool) error {
 		if err != nil {
 			logger.Critical("cannot append %s", elt.dataFn)
 			os.Exit(1)
-		} else {
+		} else if move {
 			tbd = append(tbd, elt.infoFn, elt.dataFn)
 		}
 	}
@@ -252,8 +258,14 @@ func CreateTar(tarfn string, dirname string, move bool) error {
 		logger.Error("cdbMake error: %s", err)
 	}
 	if move && err == nil && len(tbd) > 0 {
+		if onChange != nil {
+			onChange()
+		}
 		for _, fn := range tbd {
 			os.Remove(fn)
+		}
+		if onChange != nil {
+			onChange()
 		}
 	}
 	return err
@@ -283,7 +295,7 @@ func listDir(c chan<- fElt, path string, hash string) {
 		}
 		for _, fi := range keyfiles {
 			bn := fi.Name()
-			if !strings.HasSuffix(bn, SuffInfo) || !fileExists(path + "/" + bn) {
+			if !strings.HasSuffix(bn, SuffInfo) || !fileExists(path+"/"+bn) {
 				continue
 			}
 			info, elt = emptyInfo, emptyElt

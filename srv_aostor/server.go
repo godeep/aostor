@@ -48,10 +48,6 @@ func main() {
 		aostor.ConfigFile = *configfile
 		logger.Printf("set configfile: %s", aostor.ConfigFile)
 	}
-	config, err := aostor.ReadConf("", "")
-	if err != nil {
-		logger.Printf("Cannot read config %s: %s", aostor.ConfigFile, err)
-	}
 
 	http.HandleFunc("/", indexHandler)
 	for _, realm := range conf.Realms {
@@ -71,7 +67,6 @@ func main() {
 	sigchan := make(chan os.Signal, 1)
 	signal.Notify(sigchan, syscall.SIGUSR1)
 
-	go recvCommand(config.Commands)
 	go recvChangeSig(sigchan)
 
 	logger.Printf("starting server on %s", *s)
@@ -87,22 +82,6 @@ func recvChangeSig(sigchan <-chan os.Signal) {
 		}
 		logger.Printf("received Change signal, calling FillCaches")
 		aostor.FillCaches(true)
-	}
-}
-
-func recvCommand(controller <-chan aostor.ControlCommand) {
-	for {
-		cmd, ok := <-controller
-		if !ok {
-			break
-		}
-		logger.Printf("received %s command")
-		switch cmd {
-		case aostor.INDEX_RESET:
-			aostor.FillCaches(true)
-		default:
-			logger.Printf("unknown command %v", cmd)
-		}
 	}
 }
 

@@ -69,7 +69,7 @@ func compactLevel(level uint, index_dir string, threshold uint) (int, error) {
 		logger.Error("cannot list files in %s: %s", path, err)
 		return 0, err
 	}
-	files := make(sizedFilenames, 0)
+	files := make(sizedFilenames, 0, 1024)
 	for _, fn := range files_a {
 		if fn == "" {
 			continue
@@ -93,6 +93,10 @@ func compactLevel(level uint, index_dir string, threshold uint) (int, error) {
 		askip := uint(0)
 		for i, sizedfn := range files[lskip:] {
 			if size+sizedfn.size < MAX_CDB_SIZE {
+				// if !fileExists(sizedfn.filename) {
+				// 	logger.Warn("compactLevel: %s not exists!", sizedfn.filename)
+				// 	continue
+				// }
 				fbuf[j] = sizedfn.filename
 				j++
 				size += sizedfn.size
@@ -175,9 +179,10 @@ func mergeCdbs(dest_cdb_fn string, source_cdb_files []string, level uint, thresh
 	}
 	tbd := make([]string, 0)
 	for _, sfn := range source_cdb_files {
-		//if sfn == "" || !fileExists(sfn) {
-		//continue
-		//}
+		if sfn == "" {
+			// logger.Warn("mergeCdbs: sfn=%s not exists!", sfn)
+			continue
+		}
 		n := 0
 		if level == 0 {
 			book_id = StrToBytes(fmt.Sprintf("/%d", booknum))
@@ -188,7 +193,9 @@ func mergeCdbs(dest_cdb_fn string, source_cdb_files []string, level uint, thresh
 			booknum++
 			//FIXME: store only the relative path?
 			logger.Debug("put(%s,%s)", book_id, sfn)
-			// logger.Debug("%s", sfn[:len(sfn)-4])
+			// logger.Debug("sfn=%s [%d]", sfn, len(sfn))
+			// logger.Debug("1=%s", sfn[:len(sfn)-4])
+			// logger.Debug("2=%s", StrToBytes(sfn[:len(sfn)-4]))
 			cw.PutPair(book_id, StrToBytes(filepath.Base(sfn[:len(sfn)-4])))
 		} else {
 			books = make(map[string]string, threshold<<(3*level))

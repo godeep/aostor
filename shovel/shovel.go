@@ -19,16 +19,53 @@ package main
 import (
 	"flag"
 	"fmt"
+	"os"
+	"syscall"
 	"unosoft.hu/aostor"
 )
 
+var logger = aostor.GetLogger()
+
 func main() {
 	defer aostor.FlushLog()
+	var pid int
+	flag.IntVar(&pid, "p", 0, "pid to SIGUSR1 on change")
+	todo_tar := flag.Bool("-t", false, "shovel tar to dir")
+	todo_realm := flag.String("-r", "", "compact realm")
 	flag.Parse()
-	tarfn, dirname := flag.Arg(0), flag.Arg(1)
-	if err := aostor.CreateTar(tarfn, dirname, true); err != nil {
-		fmt.Printf("ERROR: %s", err)
-	} else {
-		fmt.Println("OK")
+
+	var onChange aostor.NotifyFunc
+	if pid > 0 {
+		process, err := os.FindProcess(pid)
+		if err != nil {
+			logger.Warn("cannot find pid %d: %s", pid, err)
+		} else {
+			onChange = func() {
+				process.Signal(syscall.SIGUSR1)
+			}
+		}
+
 	}
+
+	if *todo_tar {
+		tarfn, dirname := flag.Arg(0), flag.Arg(1)
+		if err := aostor.CreateTar(tarfn, dirname, true, onChange); err != nil {
+			fmt.Printf("ERROR shoveling %s to %s: %s", tarfn, dirname, err)
+		} else {
+			fmt.Println("OK")
+		}
+	} else if *todo_realm != "" {
+		realm := *todo_realm
+		if err := aostor.CompactStaging(realm, onChange); err != nil {
+			fmt.Printf("ERROR compacting %s: %s", realm, err)
+		} else {
+			fmt.Println("OK")
+		}
+	} else {
+		fmt.Printf(`Usage:
+prg -t tar dir [-p pid]
+  or
+prg -r realm [-p pid]
+`)
+			}
 }

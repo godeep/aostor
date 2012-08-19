@@ -89,7 +89,7 @@ func TestCompact(c *testing.T) {
 			}
 		}
 		//logger.Printf("MAX_CDB_SIZE: %d", MAX_CDB_SIZE)
-		if err := CompactStaging("test"); err != nil {
+		if err := CompactStaging("test", nil); err != nil {
 			c.Fatalf("compact staging error: %s", err)
 		}
 	}
