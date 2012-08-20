@@ -62,17 +62,17 @@ func CompactStaging(realm string, onChange NotifyFunc) error {
 			}
 			tarfn := realm + "-" + strNow()[:15] + "-" + uuid + ".tar"
 			if err = CreateTar(conf.TarDir+"/"+tarfn, conf.StagingDir,
-					true, onChange); err != nil {
+				true, onChange); err != nil {
 				return err
 			}
 			if err = os.Symlink(conf.TarDir+"/"+tarfn+".cdb",
-					conf.IndexDir+"/L00/"+tarfn+".cdb"); err != nil {
+				conf.IndexDir+"/L00/"+tarfn+".cdb"); err != nil {
 				return err
 			}
 			if onChange != nil {
 				onChange()
 			}
-			if err = CompactIndices(realm, 0); err != nil{
+			if err = CompactIndices(realm, 0); err != nil {
 				return err
 			}
 			break

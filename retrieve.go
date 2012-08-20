@@ -294,35 +294,54 @@ func findAtStaging(uuid string, path string) (info Info, reader io.Reader, err e
 		}
 		return
 	}
+	logger.Debug("found %s at %s as %s", uuid, path, ifh)
 	info, err = ReadInfo(ifh)
 	ifh.Close()
 	if err != nil {
+		logger.Error("cannot read info file %s: %s", ifh, err)
 		return
 	}
-	var dfh *os.File
-	fn := path + "/" + uuid + SuffData + "bz2"
-	if fileExists(fn) {
-		if dfh, err = os.Open(fn); err != nil {
-			return
-		}
-		reader = bzip2.NewReader(dfh)
-	} else {
-		fn = path + "/" + uuid + SuffData + "gz"
+	var suffixes = []string{SuffData + "bz2", SuffData + "gz", SuffLink, SuffData}
+	var fn string
+	for _, suffix := range suffixes {
+		fn = path + "/" + uuid + suffix
 		if fileExists(fn) {
-			if dfh, err = os.Open(fn); err != nil {
-				return
+			fh, err := os.Open(fn)
+			if err != nil {
+				logger.Error("cannot open %s: %s", fn, err)
+				return Info{}, nil, err
 			}
-			if reader, err = gzip.NewReader(dfh); err != nil {
-				return
+			if suffix == SuffLink {
+				fn = FindLinkOrigin(fn)
+				suffix = fn[strings.LastIndex(fn, "#"):]
 			}
-		} else {
-			fn = path + "/" + uuid
-			if reader, err = os.Open(fn); err != nil {
-				return
+			switch suffix {
+				case SuffData + "bz2":
+					reader, err = bzip2.NewReader(fh), nil
+				case SuffData + "gz":
+					reader, err = gzip.NewReader(fh)
+				default:
+					reader, err = fh, nil
 			}
+			return info, reader, err
 		}
 	}
-	return
+	return Info{}, nil, os.ErrNotExist
+}
+
+var suffopeners = []suffOpener{
+	suffOpener{SuffData + "bz2",
+		func(r io.Reader) (io.Reader, error) {
+			return bzip2.NewReader(r), nil }},
+	suffOpener{SuffData + "gz",
+		func(r io.Reader) (io.Reader, error) {
+			return gzip.NewReader(r) }},
+	suffOpener{SuffLink, nil},
+	suffOpener{SuffData, nil}}
+
+type suffOpener struct {
+	suffix string
+	open func(io.Reader) (io.Reader, error)
 }
 
 func FindLinkOrigin(fn string) string {

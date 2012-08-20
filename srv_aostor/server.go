@@ -27,6 +27,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -68,6 +69,8 @@ func main() {
 	signal.Notify(sigchan, syscall.SIGUSR1)
 
 	go recvChangeSig(sigchan)
+
+	runtime.GOMAXPROCS(runtime.NumCPU())
 
 	logger.Printf("starting server on %s", *s)
 	logger.Fatal(s.ListenAndServe())
