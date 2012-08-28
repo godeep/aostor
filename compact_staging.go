@@ -21,6 +21,7 @@ package aostor
 
 import (
 	"archive/tar"
+	"errors"
 	"fmt"
 	"github.com/tgulacsi/go-cdb"
 	"io"
@@ -31,6 +32,8 @@ import (
 
 type NotifyFunc func()
 
+var stopIteration = errors.New("StopIteration")
+
 // compacts staging dir: moves info and data files to tar
 func CompactStaging(realm string, onChange NotifyFunc) error {
 	conf, err := ReadConf("", realm)
@@ -40,14 +43,8 @@ func CompactStaging(realm string, onChange NotifyFunc) error {
 	n := DeDup(conf.StagingDir, conf.ContentHash)
 	logger.Info("DeDup: %d", n)
 
-	c := make(chan fElt, 1)
-	go listDir(c, conf.StagingDir, "")
-	size := uint64(0)
-	for {
-		elt, ok := <-c
-		if !ok {
-			break
-		}
+	var hamster listDirFunc = func(elt fElt) error {
+		size := uint64(0)
 		size += inBs(fileSize(elt.infoFn))
 		if elt.isSymlink {
 			size += BS
@@ -75,10 +72,11 @@ func CompactStaging(realm string, onChange NotifyFunc) error {
 			if err = CompactIndices(realm, 0); err != nil {
 				return err
 			}
-			break
+			return stopIteration
 		}
+		return nil
 	}
-	return nil
+	return listDirMap(conf.StagingDir, conf.ContentHash, hamster)
 }
 
 // deduplication: replace data with a symlink to a previous data with the same contant-hash-...
@@ -86,16 +84,10 @@ func DeDup(path string, hash string) int {
 	n := 0
 	hashes := make(map[string][]fElt, 16)
 	primals := make(map[string][]string, 16)
-	c := make(chan fElt, 1)
-	go listDir(c, path, hash)
-	for {
-		elt, ok := <-c
-		if !ok {
-			break
-		}
+	var hamster listDirFunc = func(elt fElt) error {
 		logger.Trace("%s sl? %s lo=%s", elt.contentHash, elt.isSymlink, FindLinkOrigin(elt.dataFn))
 		if elt.contentHash == "" {
-			continue
+			return nil
 		} else if elt.isSymlink {
 			if prim, ok := primals[elt.contentHash]; !ok {
 				primals[elt.contentHash] = []string{elt.dataFnOrig}
@@ -107,6 +99,11 @@ func DeDup(path string, hash string) int {
 		} else {
 			hashes[elt.contentHash] = []fElt{elt}
 		}
+		return nil
+	}
+	if err := listDirMap(path, hash, hamster); err != nil {
+		logger.Error("error listing %s: %s", path, err)
+		return 0
 	}
 	//logger.Printf("hashes=%s", hashes)
 	//logger.Printf("primals=%s", primals)
@@ -154,6 +151,7 @@ type fElt struct {
 	isSymlink   bool
 	dataFnOrig  string
 }
+type listDirFunc func(fElt) error
 
 //Moves files from the given directory into a given tar file
 func CreateTar(tarfn string, dirname string, move bool, onChange NotifyFunc) error {
@@ -161,8 +159,6 @@ func CreateTar(tarfn string, dirname string, move bool, onChange NotifyFunc) err
 	if move {
 		tbd = make([]string, 0)
 	}
-	listc := make(chan fElt, 1)
-	go listDir(listc, dirname, "")
 	tw, fh, pos, err := OpenForAppend(tarfn)
 	//fh, err := os.OpenFile(tarfn, os.O_APPEND|os.O_CREATE, 0640)
 	if err != nil {
@@ -177,11 +173,6 @@ func CreateTar(tarfn string, dirname string, move bool, onChange NotifyFunc) err
 		return err
 	}
 	defer cfh.Close()
-	/*
-	c := make(chan cdb.Element, 1)
-	d := make(chan error, 1)
-	go cdb.MakeFromChan(cfh, c, d)
-	*/
 	adder, closer, err := cdb.MakeFactory(cfh)
 	if err != nil {
 		logger.Critical("cannot create factory: %s", err)
@@ -190,7 +181,7 @@ func CreateTar(tarfn string, dirname string, move bool, onChange NotifyFunc) err
 	links := make(map[string]uint64, 32)
 	buf := make([]fElt, 0)
 
-	for elt := range listc {
+	var hamster listDirFunc = func(elt fElt) error {
 		// logger.Printf("fn=%s -> key=%s ?%s", fn, key, isInfo)
 		if elt.info.Key != "" {
 			elt.info.Ipos = pos
@@ -203,7 +194,7 @@ func CreateTar(tarfn string, dirname string, move bool, onChange NotifyFunc) err
 				linkpos, ok := links[elt.dataFnOrig]
 				if !ok {
 					buf = append(buf, elt)
-					continue
+					return nil
 				}
 				elt.info.Dpos = linkpos
 				_, pos, err = appendLink(tw, fh, elt.dataFn)
@@ -226,6 +217,12 @@ func CreateTar(tarfn string, dirname string, move bool, onChange NotifyFunc) err
 				tbd = append(tbd, elt.infoFn, elt.dataFn)
 			}
 		}
+		return nil
+	}
+	err = listDirMap(dirname, "", hamster)
+	if err != nil {
+		logger.Critical("error listing %s: %s", dirname, err)
+		return err
 	}
 	// close(c)
 
@@ -272,8 +269,7 @@ func CreateTar(tarfn string, dirname string, move bool, onChange NotifyFunc) err
 	return err
 }
 
-func listDir(c chan<- fElt, path string, hash string) {
-	defer close(c)
+func listDirMap(path string, hash string, hamster listDirFunc) error {
 	possibleEndings := []string{"bz2", "gz"}
 	dh, err := os.Open(path)
 	if err != nil {
@@ -341,13 +337,28 @@ func listDir(c chan<- fElt, path string, hash string) {
 				elt.dataFnOrig = FindLinkOrigin(elt.dataFn)
 				buf = append(buf, elt)
 			} else {
-				c <- elt
+				if err = hamster(elt); err != nil {
+					if err == stopIteration {
+						break
+					} else {
+						logger.Error("error with %s: %s", elt, err)
+						return err
+					}
+				}
 			}
 		}
 	}
 	for _, elt := range buf {
-		c <- elt
+		if err = hamster(elt); err != nil {
+			if err == stopIteration {
+				break
+			} else {
+				logger.Error("error with %s: %s", elt, err)
+				return err
+			}
+		}
 	}
+	return nil
 }
 
 func appendFile(tw *tar.Writer, tfh io.Seeker, fn string) (pos1 uint64, pos2 uint64, err error) {
