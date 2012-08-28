@@ -178,21 +178,19 @@ func CreateTar(tarfn string, dirname string, move bool, onChange NotifyFunc) err
 	}
 	defer cfh.Close()
 	/*
-		ir, iw := io.Pipe()
-		c := make(chan error)
-		go cdbMake(c, cfh, ir)
-	*/
 	c := make(chan cdb.Element, 1)
 	d := make(chan error, 1)
 	go cdb.MakeFromChan(cfh, c, d)
+	*/
+	adder, closer, err := cdb.MakeFactory(cfh)
+	if err != nil {
+		logger.Critical("cannot create factory: %s", err)
+		return err
+	}
 	links := make(map[string]uint64, 32)
 	buf := make([]fElt, 0)
 
-	for {
-		elt, ok := <-listc
-		if !ok {
-			break
-		}
+	for elt := range listc {
 		// logger.Printf("fn=%s -> key=%s ?%s", fn, key, isInfo)
 		if elt.info.Key != "" {
 			elt.info.Ipos = pos
@@ -222,13 +220,14 @@ func CreateTar(tarfn string, dirname string, move bool, onChange NotifyFunc) err
 					os.Exit(1)
 				}
 			}
-			c <- cdb.Element{StrToBytes(elt.info.Key), elt.info.Bytes()}
+			// c <- cdb.Element{StrToBytes(elt.info.Key), elt.info.Bytes()}
+			adder(cdb.Element{StrToBytes(elt.info.Key), elt.info.Bytes()})
 			if move {
 				tbd = append(tbd, elt.infoFn, elt.dataFn)
 			}
 		}
 	}
-	close(c)
+	// close(c)
 
 	for _, elt := range buf {
 		linkpos, ok := links[elt.dataFnOrig]
@@ -246,14 +245,16 @@ func CreateTar(tarfn string, dirname string, move bool, onChange NotifyFunc) err
 		} else if move {
 			tbd = append(tbd, elt.infoFn, elt.dataFn)
 		}
+
+		adder(cdb.Element{StrToBytes(elt.info.Key), elt.info.Bytes()})
 	}
 
 	// iw.Close()
 	if err != nil {
 		fmt.Printf("error: %s", err)
 	}
-	err = <-d
-	cfh.Close()
+	err = closer()
+	// err = <-d
 	if err != nil {
 		logger.Error("cdbMake error: %s", err)
 	}

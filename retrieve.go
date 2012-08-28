@@ -316,12 +316,12 @@ func findAtStaging(uuid string, path string) (info Info, reader io.Reader, err e
 				suffix = fn[strings.LastIndex(fn, "#"):]
 			}
 			switch suffix {
-				case SuffData + "bz2":
-					reader, err = bzip2.NewReader(fh), nil
-				case SuffData + "gz":
-					reader, err = gzip.NewReader(fh)
-				default:
-					reader, err = fh, nil
+			case SuffData + "bz2":
+				reader, err = bzip2.NewReader(fh), nil
+			case SuffData + "gz":
+				reader, err = gzip.NewReader(fh)
+			default:
+				reader, err = fh, nil
 			}
 			return info, reader, err
 		}
@@ -332,16 +332,18 @@ func findAtStaging(uuid string, path string) (info Info, reader io.Reader, err e
 var suffopeners = []suffOpener{
 	suffOpener{SuffData + "bz2",
 		func(r io.Reader) (io.Reader, error) {
-			return bzip2.NewReader(r), nil }},
+			return bzip2.NewReader(r), nil
+		}},
 	suffOpener{SuffData + "gz",
 		func(r io.Reader) (io.Reader, error) {
-			return gzip.NewReader(r) }},
+			return gzip.NewReader(r)
+		}},
 	suffOpener{SuffLink, nil},
 	suffOpener{SuffData, nil}}
 
 type suffOpener struct {
 	suffix string
-	open func(io.Reader) (io.Reader, error)
+	open   func(io.Reader) (io.Reader, error)
 }
 
 func FindLinkOrigin(fn string) string {
