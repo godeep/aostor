@@ -53,11 +53,11 @@ func CompactStaging(realm string, onChange NotifyFunc) error {
 		}
 		logger.Debug("elt=%s => size=%d", elt, size)
 		if size >= conf.TarThreshold {
-			uuid, err := StrUUID()
+			uuid, err := NewUUID()
 			if err != nil {
 				return err
 			}
-			tarfn := realm + "-" + strNow()[:15] + "-" + uuid + ".tar"
+			tarfn := realm + "-" + strNow()[:15] + "-" + uuid.String() + ".tar"
 			if err = CreateTar(conf.TarDir+"/"+tarfn, conf.StagingDir,
 				true, onChange); err != nil {
 				return err

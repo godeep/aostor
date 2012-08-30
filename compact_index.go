@@ -116,12 +116,12 @@ func compactLevel(level uint, index_dir string, threshold uint) (int, error) {
 		}
 		lskip += askip
 
-		uuid, err := StrUUID()
+		uuid, err := NewUUID()
 		if err != nil {
 			logger.Critical("cannot generate uuid: %s", err)
 			return 0, err
 		}
-		dest_cdb_fn := dest_dir + "/" + strNow()[:15] + "-" + uuid + ".cdb"
+		dest_cdb_fn := dest_dir + "/" + strNow()[:15] + "-" + uuid.String() + ".cdb"
 		err = mergeCdbs(dest_cdb_fn, fbuf, level, threshold, true)
 		if err != nil {
 			logger.Error("mergeCdbs(%s, %s, %s, %s, %s): %s", dest_cdb_fn, fbuf, level, threshold, true, err)

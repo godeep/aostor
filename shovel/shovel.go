@@ -30,8 +30,8 @@ func main() {
 	defer aostor.FlushLog()
 	var pid int
 	flag.IntVar(&pid, "p", 0, "pid to SIGUSR1 on change")
-	todo_tar := flag.Bool("-t", false, "shovel tar to dir")
-	todo_realm := flag.String("-r", "", "compact realm")
+	todo_tar := flag.Bool("t", false, "shovel tar to dir")
+	todo_realm := flag.String("r", "", "compact realm")
 	flag.Parse()
 
 	var onChange aostor.NotifyFunc

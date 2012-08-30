@@ -28,7 +28,7 @@ import (
 	"io/ioutil"
 	"mime"
 	"net/http"
-	"net/textproto"
+	// "net/textproto"
 	"strconv"
 	"strings"
 )
@@ -99,7 +99,7 @@ func (info *Info) Copy(header http.Header) {
 }
 
 // copies data from textproto.MIMEHeader
-func (info *Info) CopyFrom(header textproto.MIMEHeader) {
+func (info *Info) CopyFrom(header map[string][]string) {
 	for k, v := range header {
 		info.Add(k, strings.Join(v, ";"))
 	}

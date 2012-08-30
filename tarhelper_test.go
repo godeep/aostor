@@ -101,12 +101,12 @@ func initAppend() (tarfn string, oldsize int64, info Info, fn string, err error)
 	tarfn = os.TempDir() + "/tarhelper_test.tar"
 	fi, err := os.Stat("tarhelper_test.go")
 	oldsize = fi.Size()
-	uuid, err := StrUUID()
+	uuid, err := NewUUID()
 	if err != nil {
 		fmt.Printf("cannot generate uuid: %s", err)
 		return
 	}
-	info = Info{m: map[string]string{InfoPref + "Id": uuid}}
+	info = Info{m: map[string]string{InfoPref + "Id": uuid.String()}}
 	i := os.Getpid()%10 + 1
 	buf := make([]byte, i)
 	var n int

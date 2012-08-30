@@ -22,7 +22,8 @@ package aostor
 import (
 	"errors"
 	"fmt"
-	"github.com/nu7hatch/gouuid"
+	// "github.com/nu7hatch/gouuid"
+	"code.google.com/p/go-uuid/uuid"
 	//"bitbucket.org/taruti/mimemagic"
 	"io"
 	"os"
@@ -31,6 +32,8 @@ import (
 
 // var StoreCompressMethod = "bzip2"
 var StoreCompressMethod = "gzip"
+// var UUIDMaker = uuid.NewUUID
+var UUIDMaker = uuid.NewRandom
 
 // puts file (info + data) into the given realm - returns the key
 // if the key is in info, then uses that
@@ -44,10 +47,11 @@ func Put(realm string, info Info, data io.Reader) (key string, err error) {
 	}
 
 	if info.Key == "" || fileExists(conf.StagingDir+"/"+key+SuffInfo) {
-		info.Key, err = StrUUID()
+		b, err := NewUUID()
 		if err != nil {
-			return
+			return "", err
 		}
+		info.Key = b.String()
 	}
 	if info.Key == "" {
 		logger.Critical("empty key!")
@@ -90,13 +94,25 @@ func Put(realm string, info Info, data io.Reader) (key string, err error) {
 	return
 }
 
-// returns a hexified 16-byte random UUID4
-func StrUUID() (string, error) {
-	k, err := uuid.NewV4()
-	if err != nil {
-		return "", err
+type UUID [16]byte
+
+// returns a hexified 16-byte UUID1
+func NewUUID() (UUID, error) {
+	// k, err := uuid.NewV4()
+	// if err != nil {
+	// 	return "", err
+	// }
+	// return fmt.Sprintf("%x", *k), nil
+	b := *new(UUID)
+	u := UUIDMaker()
+	for i := 0; i < 16; i++ {
+		b[i] = u[i]
 	}
-	return fmt.Sprintf("%x", *k), nil
+	return b, nil
+}
+
+func (b *UUID) String() string {
+	return fmt.Sprintf("%032x", *b)
 }
 
 type counter struct {

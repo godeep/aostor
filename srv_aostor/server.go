@@ -20,6 +20,7 @@ package main
 import _ "net/http/pprof" // pprof
 
 import (
+	"encoding/base64"
 	"flag"
 	"fmt"
 	"io"
@@ -49,22 +50,12 @@ func main() {
 		aostor.ConfigFile = *configfile
 		logger.Printf("set configfile: %s", aostor.ConfigFile)
 	}
-
-	http.HandleFunc("/", indexHandler)
-	for _, realm := range conf.Realms {
-		http.HandleFunc("/"+realm+"/", baseHandler)
-		http.HandleFunc("/"+realm+"/up", upHandler)
+	if *hostport != "" {
+		conf.Hostport = *hostport
 	}
 
-	if *hostport == "" {
-		hostport = &conf.Hostport
-	}
-	s := &http.Server{
-		Addr:           *hostport,
-		ReadTimeout:    30 * time.Second,
-		WriteTimeout:   60 * time.Second,
-		MaxHeaderBytes: 1 << 20, // 1Mb
-	}
+	s := prepareServer(&conf)
+
 	sigchan := make(chan os.Signal, 1)
 	signal.Notify(sigchan, syscall.SIGUSR1)
 
@@ -74,6 +65,22 @@ func main() {
 
 	logger.Printf("starting server on %s", *s)
 	logger.Fatal(s.ListenAndServe())
+}
+
+func prepareServer(conf *aostor.Config) *http.Server {
+	http.HandleFunc("/", indexHandler)
+	for _, realm := range conf.Realms {
+		http.HandleFunc("/"+realm+"/", baseHandler)
+		http.HandleFunc("/"+realm+"/up", upHandler)
+	}
+
+	s := &http.Server{
+		Addr:           conf.Hostport,
+		ReadTimeout:    30 * time.Second,
+		WriteTimeout:   60 * time.Second,
+		MaxHeaderBytes: 1 << 20, // 1Mb
+	}
+	return s
 }
 
 func recvChangeSig(sigchan <-chan os.Signal) {
@@ -136,16 +143,40 @@ func upHandler(w http.ResponseWriter, r *http.Request) {
 			path = tmp[2]
 		}
 		logger.Printf("realm=%s path=%s up=%s", realm, path, up)
+		ct := r.Header.Get("Content-Type")
 		if up != "up" {
 			http.Error(w, "403 Bad Request: unknown path "+up, 403)
 		} else {
-			file, header, err := r.FormFile("upfile")
-			info := aostor.Info{}
-			info.CopyFrom(header.Header)
-			info.SetFilename(header.Filename, header.Header.Get("Content-Type"))
+			var (
+				err      error
+				file     io.Reader
+				headers  map[string][]string
+				filename string
+			)
+			if ct == "multipart/form-data" || ct == "application/x-www-form-urlencoded" {
+				f, hdr, e := r.FormFile("upfile")
+				if e != nil {
+					err = e
+				} else {
+					file = f
+					headers = hdr.Header
+					ct = hdr.Header.Get("Content-Type")
+					filename = hdr.Filename
+				}
+			} else {
+				file = base64.NewDecoder(base64.URLEncoding, r.Body)
+				headers = r.Header
+				// TODO: Content-Disposition: attachment; filename="inline; filename="test-67""
+				//       ->
+				//       test-67
+				filename = r.Header.Get("Content-Disposition")
+			}
 			if err != nil {
 				http.Error(w, fmt.Sprintf("403 Bad Request: upfile missing: %s", err), 403)
 			} else {
+				info := aostor.Info{}
+				info.CopyFrom(headers)
+				info.SetFilename(filename, ct)
 				key, err := aostor.Put(realm, info, file)
 				if err != nil {
 					http.Error(w, fmt.Sprintf("ERROR: %s", err), 500)
