@@ -36,6 +36,7 @@ import (
 )
 
 var logger = log.New(os.Stderr, "server ", log.LstdFlags|log.Lshortfile)
+var MaxRequestMemory = 20 * int64(1 << 20)
 
 func main() {
 	defer aostor.FlushLog()
@@ -133,66 +134,88 @@ func upHandler(w http.ResponseWriter, r *http.Request) {
 	tmp := strings.SplitN(r.URL.Path, "/", 3)[1:]
 	realm, path := tmp[0], tmp[1]
 	logger.Printf("realm=%s path=%s", realm, path)
-	if r.Method == "POST" {
-		tmp := strings.SplitN(r.URL.Path, "/", 4)[1:]
-		realm, up, path := tmp[0], "up", ""
-		if len(tmp) > 1 {
-			up = tmp[1]
+	if r.Method != "POST" {
+		http.Error(w, fmt.Sprintf("403 Bad Request: unknown method %s", r.Method), 403)
+		return
+	}
+	tmp = strings.SplitN(r.URL.Path, "/", 4)[1:]
+	realm, up, path := tmp[0], "up", ""
+	if len(tmp) > 1 {
+		up = tmp[1]
+	}
+	if len(tmp) > 2 {
+		path = tmp[2]
+	}
+	ct := r.Header.Get("Content-Type")
+	p := strings.Index(ct, ";")
+	if p >= 0 {
+		ct = ct[:p]
+	}
+	logger.Printf("realm=%s path=%s up=%s content-type=%s", realm, path, up, ct)
+	if up != "up" {
+		http.Error(w, "403 Bad Request: unknown path "+up, 403)
+		return
+	}
+	var (
+		err      error
+		file     io.Reader
+		headers  map[string][]string
+		filename string
+	)
+	if ct == "multipart/form-data" || ct == "application/x-www-form-urlencoded" {
+		if err = r.ParseMultipartForm(MaxRequestMemory); err != nil {
+			http.Error(w, fmt.Sprintf("403 Bad Request: cannot parse as multipart"), 403)
+			return
 		}
-		if len(tmp) > 2 {
-			path = tmp[2]
+		if r.MultipartForm == nil || r.MultipartForm.File == nil || 0 == len(r.MultipartForm.File) {
+			http.Error(w, fmt.Sprintf("403 Bad Request: no file in POST upload"), 403)
+			return
 		}
-		logger.Printf("realm=%s path=%s up=%s", realm, path, up)
-		ct := r.Header.Get("Content-Type")
-		if up != "up" {
-			http.Error(w, "403 Bad Request: unknown path "+up, 403)
+		k := "upfile"
+		if _, ok := r.MultipartForm.File[k]; !ok {
+			for k = range r.MultipartForm.File {
+				break
+			}
+		}
+		f, hdr, e := r.FormFile(k)
+		if e != nil {
+			logger.Printf("error getting upfile from form: %s", e)
+			err = e
 		} else {
-			var (
-				err      error
-				file     io.Reader
-				headers  map[string][]string
-				filename string
-			)
-			if ct == "multipart/form-data" || ct == "application/x-www-form-urlencoded" {
-				f, hdr, e := r.FormFile("upfile")
-				if e != nil {
-					err = e
-				} else {
-					file = f
-					headers = hdr.Header
-					ct = hdr.Header.Get("Content-Type")
-					filename = hdr.Filename
-				}
-			} else {
-				file = base64.NewDecoder(base64.URLEncoding, r.Body)
-				headers = r.Header
-				// Content-Disposition: attachment; filename="inline; filename="test-67""
-				// ->
-				// test-67
-				filename = r.Header.Get("Content-Disposition")
-				p := strings.LastIndex(filename, "filename=")
-				if p >= 0 {
-					filename = strings.Trim(filename[p+9:], ` "'`)
-				}
-			}
-			if err != nil {
-				http.Error(w, fmt.Sprintf("403 Bad Request: upfile missing: %s", err), 403)
-			} else {
-				info := aostor.Info{}
-				info.CopyFrom(headers)
-				info.SetFilename(filename, ct)
-				key, err := aostor.Put(realm, info, file)
-				if err != nil {
-					http.Error(w, fmt.Sprintf("ERROR: %s", err), 500)
-				} else {
-					w.Header().Add(aostor.InfoPref+"Key", key)
-					w.Write(aostor.StrToBytes(key))
-				}
-			}
+			file = f
+			headers = hdr.Header
+			ct = hdr.Header.Get("Content-Type")
+			filename = hdr.Filename
+			logger.Printf("FORM f=%v headers=%s ct=%s", file, headers, ct)
 		}
 	} else {
-		http.Error(w, fmt.Sprintf("403 Bad Request: unknown method %s", r.Method), 403)
+		file = base64.NewDecoder(base64.URLEncoding, r.Body)
+		headers = r.Header
+		// Content-Disposition: attachment; filename="inline; filename="test-67""
+		// ->
+		// test-67
+		filename = r.Header.Get("Content-Disposition")
+		p = strings.LastIndex(filename, "filename=")
+		if p >= 0 {
+			filename = strings.Trim(filename[p+9:], ` "'`)
+		}
+		logger.Printf("RAW f=%v headers=%s ct=%s", file, headers, ct)
 	}
+	if err != nil {
+		http.Error(w, fmt.Sprintf("403 Bad Request: upfile missing: %s", err), 403)
+		return
+	}
+	info := aostor.Info{}
+	info.CopyFrom(headers)
+	info.SetFilename(filename, ct)
+	logger.Printf("filename: %s info: %s", filename, info)
+	key, err := aostor.Put(realm, info, file)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("ERROR: %s", err), 500)
+		return
+	}
+	w.Header().Add(aostor.InfoPref+"Key", key)
+	w.Write(aostor.StrToBytes(key))
 }
 
 func indexHandler(w http.ResponseWriter, r *http.Request) {

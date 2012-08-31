@@ -24,10 +24,12 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime/multipart"
 	"net/http"
 	"net/http/httputil"
 	"os"
 	"os/exec"
+	// "strings"
 	"testing"
 	"time"
 	// "testing/iotest"
@@ -36,10 +38,10 @@ import (
 
 var (
 	parallel = flag.Int("parallel", 1, "parallel threads")
+	hostport = flag.String("http", "", "already running server address")
 	url      string
 	devnull  io.Writer
 	urandom  io.Reader
-	client   = &http.Client{}
 	close    func()
 )
 
@@ -54,8 +56,9 @@ func BenchmarkStore(b *testing.B) {
 	if err != nil {
 		log.Panicf("error starting server: %s", err)
 	}
-	defer close()
-	time.Sleep(1 * time.Second)
+	if close != nil {
+		defer close()
+	}
 	bp := int64(0)
 	b.StartTimer()
 	for i := 1; i < b.N; i++ {
@@ -78,48 +81,66 @@ func startServer() (func(), error) {
 	if err != nil {
 		return nil, err
 	}
-	c, err := aostor.ReadConf("", "test")
-	if err != nil {
-		return nil, err
-	}
-	url = "http://" + c.Hostport + "/test"
 	// go main()
 
-	cmd := exec.Command("./srv_aostor")
-
-	return func() {cmd.Process.Kill()}, cmd.Start()
+	if *hostport == "" {
+		c, err := aostor.ReadConf("", "test")
+		if err != nil {
+			return nil, err
+		}
+		url = "http://" + c.Hostport + "/test"
+		cmd := exec.Command("./srv_aostor")
+		time.Sleep(1 * time.Second)
+		return func() { cmd.Process.Kill() }, cmd.Start()
+	}
+	url = "http://" + *hostport + "/test"
+	return nil, nil
 }
 
 func checkedUpload(length uint64, dump bool) error {
-	buf := bytes.NewBuffer(make([]byte, 0, length))
-	n, err := io.CopyN(buf, urandom, int64(length))
+	buf := make([]byte, int(length))
+	n, err := urandom.Read(buf)
 	if err != nil {
+		log.Printf("read %s (%d): %s", buf, n, err)
 		return err
 	}
-	// buf.Write([]byte{'\r', '\n'})
-	b := buf.Bytes()
-	log.Printf("read %d bytes from urandom, len(buf)=%d: %v", n, len(b), b)
-	b2 := make([]byte, len(b))
-	n2, e := io.ReadFull(bytes.NewReader(b), b2)
-	log.Printf("reading back from %v: %v (%d - %s)", b, b2, n2, e)
-	key, err := upload(bytes.NewReader(b), uint64(len(b)), dump)
+	key, err := upload(buf, dump)
 	if err != nil {
 		return err
 	}
 	return get(key, length)
 }
 
-func upload(payload io.Reader, length uint64, dump bool) ([]byte, error) {
-	req, err := http.NewRequest("POST", url+"/up", payload)
+func upload(payload []byte, dump bool) ([]byte, error) {
+	reqbuf := bytes.NewBuffer(make([]byte, 0, 2*len(payload)+1024))
+	mw := multipart.NewWriter(reqbuf)
+	w, err := mw.CreateFormFile("upfile", fmt.Sprintf("test-%d", len(payload)))
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Content-Type", "application/octet-stream")
-	req.Header.Set("Content-Length", fmt.Sprintf("%d", length))
-	req.Header.Set("Content-Disposition",
-		fmt.Sprintf("inline; filename=\"test-%d\"", length))
-	resp, err := client.Do(req)
-	if err != nil || dump {
+	n, err := w.Write(payload)
+	if err != nil {
+		log.Printf("written payload is %d bytes (%s)", n, err)
+		return nil, err
+	}
+	mw.Close()
+	// log.Printf("body:\n%v", reqbuf)
+
+	req, err := http.NewRequest("POST", url+"/up", reqbuf)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	if dump {
+		buf, e := httputil.DumpRequestOut(req, true)
+		if e != nil {
+			log.Panicf("cannot dump request %s: %s", req, e)
+		} else {
+			log.Printf("\n>>>>>>\nrequest:\n%s", buf)
+		}
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
 		buf, e := httputil.DumpRequestOut(req, true)
 		if e != nil {
 			log.Panicf("cannot dump request %s: %s", req, e)
@@ -132,7 +153,7 @@ func upload(payload io.Reader, length uint64, dump bool) ([]byte, error) {
 	}
 	defer resp.Body.Close()
 	key := make([]byte, 32)
-	n, err := resp.Body.Read(key)
+	n, err = resp.Body.Read(key)
 	if err != nil || dump {
 		buf, e := httputil.DumpResponse(resp, true)
 		if e != nil {
@@ -154,6 +175,9 @@ func get(key []byte, length uint64) error {
 	resp, err := http.Get(url + "/" + aostor.BytesToStr(key))
 	if err != nil {
 		return err
+	}
+	if !(200 <= resp.StatusCode && resp.StatusCode <= 299) {
+		return fmt.Errorf("%s", resp.Status)
 	}
 	defer resp.Body.Close()
 	c := aostor.NewCounter()

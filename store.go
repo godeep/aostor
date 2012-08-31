@@ -116,7 +116,6 @@ func (b *UUID) String() string {
 	return fmt.Sprintf("%032x", *b)
 }
 
-
 // A writer which counts bytes written into it
 type CountingWriter struct {
 	Num uint64 // bytes written

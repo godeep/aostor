@@ -87,6 +87,10 @@ func (info *Info) SetFilename(fn string, mime string) {
 		info.Add("Content-Disposition", `attachment; filename="`+fn+`"`)
 	}
 	if mime != "" {
+		i := strings.Index(mime, ";")
+		if i >= 0 {
+			mime = mime[:i]
+		}
 		info.Add("Content-Type", mime)
 	}
 }
@@ -94,7 +98,10 @@ func (info *Info) SetFilename(fn string, mime string) {
 // copies adata from Info to http.Header
 func (info *Info) Copy(header http.Header) {
 	for k, v := range info.m {
-		header.Add(k, v)
+		k = http.CanonicalHeaderKey(k)
+		if k != "Accept-Encoding" {
+			header.Add(k, v)
+		}
 	}
 }
 
