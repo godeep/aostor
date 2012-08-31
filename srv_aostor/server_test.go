@@ -55,7 +55,7 @@ func BenchmarkStore(b *testing.B) {
 		log.Panicf("error starting server: %s", err)
 	}
 	defer close()
-	time.Sleep(2 * time.Second)
+	time.Sleep(1 * time.Second)
 	bp := int64(0)
 	b.StartTimer()
 	for i := 1; i < b.N; i++ {
@@ -91,33 +91,38 @@ func startServer() (func(), error) {
 }
 
 func checkedUpload(length uint64, dump bool) error {
-	buf := make([]byte, length)
-	_, err := io.ReadAtLeast(urandom, buf, int(length / 2 + 1))
+	buf := bytes.NewBuffer(make([]byte, 0, length))
+	n, err := io.CopyN(buf, urandom, int64(length))
 	if err != nil {
 		return err
 	}
-	payload := bytes.NewBuffer(buf)
-	key, err := upload(payload, dump)
+	// buf.Write([]byte{'\r', '\n'})
+	b := buf.Bytes()
+	log.Printf("read %d bytes from urandom, len(buf)=%d: %v", n, len(b), b)
+	b2 := make([]byte, len(b))
+	n2, e := io.ReadFull(bytes.NewReader(b), b2)
+	log.Printf("reading back from %v: %v (%d - %s)", b, b2, n2, e)
+	key, err := upload(bytes.NewReader(b), uint64(len(b)), dump)
 	if err != nil {
 		return err
 	}
 	return get(key, length)
 }
 
-func upload(payload *bytes.Buffer, dump bool) ([]byte, error) {
+func upload(payload io.Reader, length uint64, dump bool) ([]byte, error) {
 	req, err := http.NewRequest("POST", url+"/up", payload)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/octet-stream")
-	req.Header.Set("Content-Length", fmt.Sprintf("%d", payload.Len()))
+	req.Header.Set("Content-Length", fmt.Sprintf("%d", length))
 	req.Header.Set("Content-Disposition",
-		fmt.Sprintf("inline; filename=\"test-%d\"", payload.Len()))
+		fmt.Sprintf("inline; filename=\"test-%d\"", length))
 	resp, err := client.Do(req)
 	if err != nil || dump {
 		buf, e := httputil.DumpRequestOut(req, true)
 		if e != nil {
-			log.Printf("cannot dump request %s: %s", req, e)
+			log.Panicf("cannot dump request %s: %s", req, e)
 		} else {
 			log.Printf("\n>>>>>>\nrequest:\n%s", buf)
 		}
