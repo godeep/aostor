@@ -18,12 +18,14 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"flag"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"net/http/httputil"
 	"os"
 	"os/exec"
 	"testing"
@@ -36,7 +38,7 @@ var (
 	parallel = flag.Int("parallel", 1, "parallel threads")
 	url      string
 	devnull  io.Writer
-	urandom  io.ReadCloser
+	urandom  io.Reader
 	client   = &http.Client{}
 	close    func()
 )
@@ -57,7 +59,7 @@ func BenchmarkStore(b *testing.B) {
 	bp := int64(0)
 	b.StartTimer()
 	for i := 1; i < b.N; i++ {
-		if err = checkedUpload(uint64(i)); err != nil {
+		if err = checkedUpload(uint64(i), i < 2); err != nil {
 			b.Fatalf("error uploading %d: %s", i, err)
 		}
 		bp += int64(i)
@@ -71,6 +73,7 @@ func startServer() (func(), error) {
 	if err != nil {
 		return nil, err
 	}
+	urandom = bufio.NewReader(urandom)
 	devnull, err = os.OpenFile("/dev/null", os.O_WRONLY, 0600)
 	if err != nil {
 		return nil, err
@@ -87,31 +90,52 @@ func startServer() (func(), error) {
 	return func() {cmd.Process.Kill()}, cmd.Start()
 }
 
-func checkedUpload(length uint64) error {
-	payload := io.LimitReader(urandom, int64(length))
-	key, err := upload(payload.(*io.LimitedReader))
+func checkedUpload(length uint64, dump bool) error {
+	buf := make([]byte, length)
+	_, err := io.ReadAtLeast(urandom, buf, int(length / 2 + 1))
+	if err != nil {
+		return err
+	}
+	payload := bytes.NewBuffer(buf)
+	key, err := upload(payload, dump)
 	if err != nil {
 		return err
 	}
 	return get(key, length)
 }
 
-func upload(payload *io.LimitedReader) ([]byte, error) {
+func upload(payload *bytes.Buffer, dump bool) ([]byte, error) {
 	req, err := http.NewRequest("POST", url+"/up", payload)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Add("Content-Type", "application/octet-stream")
-	req.Header.Add("Content-Length", fmt.Sprintf("%d", payload.N))
-	req.Header.Add("Content-Disposition",
-		fmt.Sprintf("inline; filename=\"test-%d\"", payload.N))
+	req.Header.Set("Content-Type", "application/octet-stream")
+	req.Header.Set("Content-Length", fmt.Sprintf("%d", payload.Len()))
+	req.Header.Set("Content-Disposition",
+		fmt.Sprintf("inline; filename=\"test-%d\"", payload.Len()))
 	resp, err := client.Do(req)
+	if err != nil || dump {
+		buf, e := httputil.DumpRequestOut(req, true)
+		if e != nil {
+			log.Printf("cannot dump request %s: %s", req, e)
+		} else {
+			log.Printf("\n>>>>>>\nrequest:\n%s", buf)
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 	key := make([]byte, 32)
 	n, err := resp.Body.Read(key)
+	if err != nil || dump {
+		buf, e := httputil.DumpResponse(resp, true)
+		if e != nil {
+			log.Printf("cannot dump response %s: %s", resp, e)
+		} else {
+			log.Printf("\n<<<<<<\nresponse:\n%s", buf)
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -127,23 +151,11 @@ func get(key []byte, length uint64) error {
 		return err
 	}
 	defer resp.Body.Close()
-	c := new(counter)
+	c := aostor.NewCounter()
 	io.Copy(c, resp.Body)
-	if c.n != length || resp.ContentLength > -1 && int64(length) != resp.ContentLength {
+	if c.Num != length || resp.ContentLength > -1 && int64(length) != resp.ContentLength {
 		return fmt.Errorf("length mismatch: read %d bytes (content-length=%d) for %s, required %d",
-			c.n, resp.ContentLength, key, length)
+			c.Num, resp.ContentLength, key, length)
 	}
 	return nil
-}
-
-// for counting written bytes
-type counter struct {
-	n uint64
-}
-
-func (c *counter) Write(p []byte) (n int, err error) {
-	n = len(p)
-	log.Printf("read %d(%s)", n, p)
-	c.n += uint64(n)
-	return n, nil
 }

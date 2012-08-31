@@ -166,10 +166,14 @@ func upHandler(w http.ResponseWriter, r *http.Request) {
 			} else {
 				file = base64.NewDecoder(base64.URLEncoding, r.Body)
 				headers = r.Header
-				// TODO: Content-Disposition: attachment; filename="inline; filename="test-67""
-				//       ->
-				//       test-67
+				// Content-Disposition: attachment; filename="inline; filename="test-67""
+				// ->
+				// test-67
 				filename = r.Header.Get("Content-Disposition")
+				p := strings.LastIndex(filename, "filename=")
+				if p >= 0 {
+					filename = strings.Trim(filename[p+9:], ` "'`)
+				}
 			}
 			if err != nil {
 				http.Error(w, fmt.Sprintf("403 Bad Request: upfile missing: %s", err), 403)

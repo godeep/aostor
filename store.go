@@ -32,6 +32,7 @@ import (
 
 // var StoreCompressMethod = "bzip2"
 var StoreCompressMethod = "gzip"
+
 // var UUIDMaker = uuid.NewUUID
 var UUIDMaker = uuid.NewRandom
 
@@ -67,7 +68,7 @@ func Put(realm string, info Info, data io.Reader) (key string, err error) {
 		return
 	}
 	hsh := conf.ContentHashFunc()
-	cnt := &counter{}
+	cnt := NewCounter()
 	w := io.MultiWriter(dfh, hsh, cnt)
 	_, err = compressor.CompressCopy(w, data, StoreCompressMethod)
 	dfh.Close()
@@ -115,11 +116,18 @@ func (b *UUID) String() string {
 	return fmt.Sprintf("%032x", *b)
 }
 
-type counter struct {
-	Num uint64
+
+// A writer which counts bytes written into it
+type CountingWriter struct {
+	Num uint64 // bytes written
 }
 
-func (c *counter) Write(p []byte) (n int, err error) {
+func NewCounter() *CountingWriter {
+	return &CountingWriter{}
+}
+
+// just count
+func (c *CountingWriter) Write(p []byte) (n int, err error) {
 	n = len(p)
 	c.Num += uint64(n)
 	return n, nil
