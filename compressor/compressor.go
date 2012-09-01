@@ -31,6 +31,7 @@ import (
 
 var logger = log.New(bufio.NewWriter(os.Stderr), "compressor ", log.LstdFlags|log.Lshortfile)
 
+// compresses from reader to a tempfile, returning its name
 func CompressToTemp(r io.Reader, compressMethod string) (tempfn string, err error) {
 	tempfn = os.TempDir() + fmt.Sprintf("/tarhelper-%s-%d.gz", RandString(8),
 		os.Getpid())
@@ -46,6 +47,7 @@ func CompressToTemp(r io.Reader, compressMethod string) (tempfn string, err erro
 	return
 }
 
+// RandString returns a random string
 func RandString(length int) string {
 	buf := make([]byte, length)
 	if _, err := rand.Read(buf); err != nil {
@@ -56,6 +58,8 @@ func RandString(length int) string {
 	return fmt.Sprintf("%x", buf)
 }
 
+// CompressCopy copies from reader to writer, compressing in between using
+// the given compressMethod
 func CompressCopy(w io.Writer, r io.Reader, compressMethod string) (int64, error) {
 	if compressMethod == "gzip" || compressMethod == "gz" {
 		gw, err := gzip.NewWriterLevel(w, flate.BestCompression)
@@ -77,6 +81,7 @@ func CompressCopy(w io.Writer, r io.Reader, compressMethod string) (int64, error
 	return 0, nil
 }
 
+// compressmethod -> compressor function map
 var CompressorRegistry = make(map[string]string, 3)
 
 func init() {
@@ -87,6 +92,7 @@ func init() {
 	}
 }
 
+// uses external program for compression
 func ExternalCompressCopy(dst io.Writer, src io.Reader, compressMethod string) error {
 	prg, ok := CompressorRegistry[compressMethod]
 	if !ok {
@@ -106,6 +112,7 @@ func ExternalCompressCopy(dst io.Writer, src io.Reader, compressMethod string) e
 	return err
 }
 
+// uses external program for decompression
 func ExternalDecompressCopy(dst io.Writer, src io.Reader, compressMethod string) error {
 	prg, ok := CompressorRegistry[compressMethod]
 	if !ok {
@@ -125,6 +132,7 @@ func ExternalDecompressCopy(dst io.Writer, src io.Reader, compressMethod string)
 	return err
 }
 
+// shortens the method name (gzip->gz, bzip2->bz2)
 func ShorterMethod(name string) string {
 	switch(name) {
 	case "bzip2":

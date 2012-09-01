@@ -21,9 +21,9 @@ package aostor
 
 import (
 	// "bytes"
+	"code.google.com/p/go-uuid/uuid"
 	"errors"
 	"fmt"
-	"code.google.com/p/go-uuid/uuid"
 	//"bitbucket.org/taruti/mimemagic"
 	"io"
 	// "io/ioutil"
@@ -70,23 +70,11 @@ func Put(realm string, info Info, data io.Reader) (key string, err error) {
 	}
 	hsh := conf.ContentHashFunc()
 	cnt := NewCounter()
-	// fmt.Printf("data=%s\n", data)
-	// buf, err := ioutil.ReadAll(data)
-	// if err != nil {
-	// 	return
-	// }
-	// data = bytes.NewReader(buf)
 	r := io.TeeReader(data, io.MultiWriter(hsh, cnt))
-
-	// buf, err = ioutil.ReadAll(r)
-	// if err != nil {
-	// 	return
-	// }
-	// // fmt.Printf("data2=%s\n", buf)
-	// r = bytes.NewReader(buf)
-
 	n, err := compressor.CompressCopy(dfh, r, StoreCompressMethod)
 	dfh.Close()
+	dfh.Sync()
+
 	fs := fileSize(dfh.Name())
 	if fs <= 0 {
 		err = errors.New("Empty compressed file!")
