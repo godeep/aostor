@@ -23,12 +23,14 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"mime/multipart"
 	"net/http"
 	"net/http/httputil"
 	"os"
 	"os/exec"
+	"runtime"
 	// "strings"
 	"testing"
 	"time"
@@ -37,40 +39,65 @@ import (
 )
 
 var (
-	parallel = flag.Int("parallel", 1, "parallel threads")
+	parallel = flag.Int("P", 1, "parallel threads")
 	hostport = flag.String("http", "", "already running server address")
+	N        = flag.Int("N", 100, "request number")
 	url      string
 	devnull  io.Writer
 	urandom  io.Reader
-	close    func()
+	closer    func()
 )
 
-func init() {
-	flag.Parse()
-}
-
-func BenchmarkStore(b *testing.B) {
+func TestParallelStore(t *testing.T) {
 	var err error
-	b.StopTimer()
-	close, err = startServer()
+	// b.StopTimer()
+	closer, err = startServer()
 	if err != nil {
 		log.Panicf("error starting server: %s", err)
 	}
-	if close != nil {
-		defer close()
+	if closer != nil {
+		defer closer()
 	}
-	bp := int64(0)
-	b.StartTimer()
-	for i := 1; i < b.N; i++ {
-		if err = checkedUpload(uint64(i), i < 2); err != nil {
-			b.Fatalf("error uploading %d: %s", i, err)
+	// b.StartTimer()
+	log.Printf("parallel=%v (%d)", parallel, *parallel)
+	payloadch, err := payloadGenerator(*N, *parallel)
+	if err != nil {
+		t.Fatalf("error starting payloadGenerator(%d, %d): %s", *N, *parallel, err)
+	}
+	errch := make(chan error, 1+*parallel)
+	donech := make(chan int64, *parallel)
+	upl := func(dump bool) {
+		bp := int64(0)
+		for payload := range payloadch {
+			if err = checkedUpload(payload, dump && bp < 1); err != nil {
+				errch <- fmt.Errorf("error uploading %s: %s", payload, err)
+				break
+			}
+			bp += int64(len(payload.body))
 		}
-		bp += int64(i)
-		b.SetBytes(bp)
+		donech <- bp
 	}
+	for j := 0; j < *parallel; j++ {
+		go upl(j < 1)
+	}
+	gbp := int64(0)
+	for i := 0; i < *parallel; {
+		select {
+		case err = <-errch:
+			t.Fatalf("ERROR: %s", err)
+		case b := <-donech:
+			i++
+			gbp += b
+		}
+	}
+	log.Printf("done %d bytes", gbp)
 }
 
 func startServer() (func(), error) {
+	if url != "" {
+		return nil, nil
+	}
+	flag.Parse()
 	var err error
 	urandom, err = os.Open("/dev/urandom")
 	if err != nil {
@@ -94,43 +121,81 @@ func startServer() (func(), error) {
 		return func() { cmd.Process.Kill() }, cmd.Start()
 	}
 	url = "http://" + *hostport + "/test"
+	runtime.GOMAXPROCS(runtime.NumCPU())
 	return nil, nil
 }
 
-func checkedUpload(length uint64, dump bool) error {
-	buf := make([]byte, int(length))
-	n, err := urandom.Read(buf)
-	if err != nil {
-		log.Printf("read %s (%d): %s", buf, n, err)
-		return err
-	}
-	key, err := upload(buf, dump)
-	if err != nil {
-		return err
-	}
-	return get(key, length)
+type pLoad struct {
+	body []byte
+	ct   string
+	length uint64
 }
 
-func upload(payload []byte, dump bool) ([]byte, error) {
-	reqbuf := bytes.NewBuffer(make([]byte, 0, 2*len(payload)+1024))
-	mw := multipart.NewWriter(reqbuf)
-	w, err := mw.CreateFormFile("upfile", fmt.Sprintf("test-%d", len(payload)))
+func payloadGenerator(cnt int, mul int) (<-chan pLoad, error) {
+	outch := make(chan pLoad, mul)
+
+	go func() {
+		length := 1
+		for j := 0; j < cnt; j++ {
+			length = (j + 1) * 8
+			buf := make([]byte, length)
+			n, err := urandom.Read(buf)
+			if err != nil {
+				log.Printf("read %s (%d): %s", buf, n, err)
+				for i := 0; i < len(buf); i++ {
+					buf[i] = uint8(i)
+				}
+			} else {
+				buf = buf[:n]
+			}
+			if len(buf) == 0 {
+				log.Fatalf("zero payload (length=%d n=%d)", length, n)
+			}
+			reqbuf := bytes.NewBuffer(make([]byte, 0, 2*len(buf)+256))
+			mw := multipart.NewWriter(reqbuf)
+			w, err := mw.CreateFormFile("upfile", fmt.Sprintf("test-%d", j+1))
+			if err != nil {
+				log.Panicf("cannot create FormFile: %s", err)
+			}
+			n, err = w.Write(buf)
+			if err != nil {
+				log.Printf("written payload is %d bytes (%s)", n, err)
+			}
+			mw.Close()
+			payload := pLoad{reqbuf.Bytes(), mw.FormDataContentType(), uint64(len(buf))}
+			for i := 0; i < mul; i++ {
+				// select {
+				// case outch <- payload: //pass
+				// default:
+				// 	log.Printf("%d*%d blocked?", j, i)
+					outch <- payload
+				// 	log.Printf("%d*%d no", j, i)
+				// }
+			}
+		}
+		close(outch)
+	}()
+
+	return outch, nil
+}
+
+func checkedUpload(payload pLoad, dump bool) error {
+	key, err := upload(payload, dump)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	n, err := w.Write(payload)
-	if err != nil {
-		log.Printf("written payload is %d bytes (%s)", n, err)
-		return nil, err
-	}
-	mw.Close()
+	return get(key, payload.length)
+}
+
+func upload(payload pLoad, dump bool) ([]byte, error) {
 	// log.Printf("body:\n%v", reqbuf)
 
-	req, err := http.NewRequest("POST", url+"/up", reqbuf)
+	req, err := http.NewRequest("POST", url+"/up", bytes.NewReader(payload.body))
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req.ContentLength = int64(len(payload.body))
+	req.Header.Set("Content-Type", payload.ct)
 	if dump {
 		buf, e := httputil.DumpRequestOut(req, true)
 		if e != nil {
@@ -153,7 +218,7 @@ func upload(payload []byte, dump bool) ([]byte, error) {
 	}
 	defer resp.Body.Close()
 	key := make([]byte, 32)
-	n, err = resp.Body.Read(key)
+	n, err := resp.Body.Read(key)
 	if err != nil || dump {
 		buf, e := httputil.DumpResponse(resp, true)
 		if e != nil {
@@ -176,15 +241,18 @@ func get(key []byte, length uint64) error {
 	if err != nil {
 		return err
 	}
+	defer resp.Body.Close()
 	if !(200 <= resp.StatusCode && resp.StatusCode <= 299) {
 		return fmt.Errorf("%s", resp.Status)
 	}
-	defer resp.Body.Close()
 	c := aostor.NewCounter()
-	io.Copy(c, resp.Body)
-	if c.Num != length || resp.ContentLength > -1 && int64(length) != resp.ContentLength {
-		return fmt.Errorf("length mismatch: read %d bytes (content-length=%d) for %s, required %d",
-			c.Num, resp.ContentLength, key, length)
+	buf, err := ioutil.ReadAll(io.TeeReader(resp.Body, c))
+	if err != nil {
+		return fmt.Errorf("error reading from %s: %s", resp.Body, err)
+	}
+	if c.Num != length {
+		return fmt.Errorf("length mismatch: read %d bytes (%d content-length=%d) for %s, required %d\n%s",
+			c.Num, len(buf), resp.ContentLength, key, length, resp)
 	}
 	return nil
 }

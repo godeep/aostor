@@ -20,12 +20,13 @@
 package aostor
 
 import (
+	// "bytes"
 	"errors"
 	"fmt"
-	// "github.com/nu7hatch/gouuid"
 	"code.google.com/p/go-uuid/uuid"
 	//"bitbucket.org/taruti/mimemagic"
 	"io"
+	// "io/ioutil"
 	"os"
 	"unosoft.hu/aostor/compressor"
 )
@@ -69,12 +70,30 @@ func Put(realm string, info Info, data io.Reader) (key string, err error) {
 	}
 	hsh := conf.ContentHashFunc()
 	cnt := NewCounter()
-	w := io.MultiWriter(dfh, hsh, cnt)
-	_, err = compressor.CompressCopy(w, data, StoreCompressMethod)
+	// fmt.Printf("data=%s\n", data)
+	// buf, err := ioutil.ReadAll(data)
+	// if err != nil {
+	// 	return
+	// }
+	// data = bytes.NewReader(buf)
+	r := io.TeeReader(data, io.MultiWriter(hsh, cnt))
+
+	// buf, err = ioutil.ReadAll(r)
+	// if err != nil {
+	// 	return
+	// }
+	// // fmt.Printf("data2=%s\n", buf)
+	// r = bytes.NewReader(buf)
+
+	n, err := compressor.CompressCopy(dfh, r, StoreCompressMethod)
 	dfh.Close()
 	fs := fileSize(dfh.Name())
 	if fs <= 0 {
 		err = errors.New("Empty compressed file!")
+		return
+	} else if n <= 0 || cnt.Num <= 0 {
+		err = fmt.Errorf("Empty data (n=%d, cnt=%d)", n, cnt.Num)
+		return
 	} else {
 		// logger.Printf("%s size=%d", dfh.Name(), fs)
 	}

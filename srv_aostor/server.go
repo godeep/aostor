@@ -20,6 +20,7 @@ package main
 import _ "net/http/pprof" // pprof
 
 import (
+	"bufio"
 	"encoding/base64"
 	"flag"
 	"fmt"
@@ -36,7 +37,7 @@ import (
 )
 
 var logger = log.New(os.Stderr, "server ", log.LstdFlags|log.Lshortfile)
-var MaxRequestMemory = 20 * int64(1 << 20)
+var MaxRequestMemory = 20 * int64(1<<20)
 
 func main() {
 	defer aostor.FlushLog()
@@ -124,7 +125,7 @@ func baseHandler(w http.ResponseWriter, r *http.Request) {
 		r.URL.Path = "/" + realm + "/up/" + path
 		upHandler(w, r)
 	} else {
-		http.Error(w, fmt.Sprintf("403 Bad Request: unknown method %s", r.Method), 403)
+		http.Error(w, fmt.Sprintf("400 Bad Request: unknown method %s", r.Method), 400)
 	}
 	return
 }
@@ -135,7 +136,7 @@ func upHandler(w http.ResponseWriter, r *http.Request) {
 	realm, path := tmp[0], tmp[1]
 	logger.Printf("realm=%s path=%s", realm, path)
 	if r.Method != "POST" {
-		http.Error(w, fmt.Sprintf("403 Bad Request: unknown method %s", r.Method), 403)
+		http.Error(w, fmt.Sprintf("400 Bad Request: unknown method %s", r.Method), 400)
 		return
 	}
 	tmp = strings.SplitN(r.URL.Path, "/", 4)[1:]
@@ -153,7 +154,7 @@ func upHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	logger.Printf("realm=%s path=%s up=%s content-type=%s", realm, path, up, ct)
 	if up != "up" {
-		http.Error(w, "403 Bad Request: unknown path "+up, 403)
+		http.Error(w, "400 Bad Request: unknown path "+up, 400)
 		return
 	}
 	var (
@@ -164,11 +165,11 @@ func upHandler(w http.ResponseWriter, r *http.Request) {
 	)
 	if ct == "multipart/form-data" || ct == "application/x-www-form-urlencoded" {
 		if err = r.ParseMultipartForm(MaxRequestMemory); err != nil {
-			http.Error(w, fmt.Sprintf("403 Bad Request: cannot parse as multipart"), 403)
+			http.Error(w, fmt.Sprintf("400 Bad Request: cannot parse as multipart"), 400)
 			return
 		}
 		if r.MultipartForm == nil || r.MultipartForm.File == nil || 0 == len(r.MultipartForm.File) {
-			http.Error(w, fmt.Sprintf("403 Bad Request: no file in POST upload"), 403)
+			http.Error(w, fmt.Sprintf("400 Bad Request: no file in POST upload"), 400)
 			return
 		}
 		k := "upfile"
@@ -202,14 +203,20 @@ func upHandler(w http.ResponseWriter, r *http.Request) {
 		logger.Printf("RAW f=%v headers=%s ct=%s", file, headers, ct)
 	}
 	if err != nil {
-		http.Error(w, fmt.Sprintf("403 Bad Request: upfile missing: %s", err), 403)
+		http.Error(w, fmt.Sprintf("400 Bad Request: upfile missing: %s", err), 400)
 		return
 	}
 	info := aostor.Info{}
 	info.CopyFrom(headers)
 	info.SetFilename(filename, ct)
 	logger.Printf("filename: %s info: %s", filename, info)
-	key, err := aostor.Put(realm, info, file)
+	fbuf := bufio.NewReader(file)
+	if _, e := fbuf.Peek(1); e != nil {
+		http.Error(w, fmt.Sprintf("400 Bad Request: empty body"), 400)
+	// } else {
+	// 	logger.Printf("PEEK: %v", z)
+	}
+	key, err := aostor.Put(realm, info, fbuf)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("ERROR: %s", err), 500)
 		return
