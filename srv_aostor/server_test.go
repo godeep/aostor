@@ -45,12 +45,11 @@ var (
 	url      string
 	devnull  io.Writer
 	urandom  io.Reader
-	closer    func()
+	closer   func()
 )
 
 func TestParallelStore(t *testing.T) {
 	var err error
-	// b.StopTimer()
 	closer, err = startServer()
 	if err != nil {
 		log.Panicf("error starting server: %s", err)
@@ -58,7 +57,6 @@ func TestParallelStore(t *testing.T) {
 	if closer != nil {
 		defer closer()
 	}
-	// b.StartTimer()
 	log.Printf("parallel=%v (%d)", parallel, *parallel)
 	payloadch, err := payloadGenerator(*N, *parallel)
 	if err != nil {
@@ -110,6 +108,7 @@ func startServer() (func(), error) {
 	}
 	// go main()
 
+	log.Printf("hostport=%s = %s", hostport, *hostport)
 	if *hostport == "" {
 		c, err := aostor.ReadConf("", "test")
 		if err != nil {
@@ -117,8 +116,9 @@ func startServer() (func(), error) {
 		}
 		url = "http://" + c.Hostport + "/test"
 		cmd := exec.Command("./srv_aostor")
+		err = cmd.Start()
 		time.Sleep(1 * time.Second)
-		return func() { cmd.Process.Kill() }, cmd.Start()
+		return func() { cmd.Process.Kill() }, err
 	}
 	url = "http://" + *hostport + "/test"
 	runtime.GOMAXPROCS(runtime.NumCPU())
@@ -126,8 +126,8 @@ func startServer() (func(), error) {
 }
 
 type pLoad struct {
-	body []byte
-	ct   string
+	body   []byte
+	ct     string
 	length uint64
 }
 
@@ -168,7 +168,7 @@ func payloadGenerator(cnt int, mul int) (<-chan pLoad, error) {
 				// case outch <- payload: //pass
 				// default:
 				// 	log.Printf("%d*%d blocked?", j, i)
-					outch <- payload
+				outch <- payload
 				// 	log.Printf("%d*%d no", j, i)
 				// }
 			}

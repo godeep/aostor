@@ -213,8 +213,8 @@ func upHandler(w http.ResponseWriter, r *http.Request) {
 	fbuf := bufio.NewReader(file)
 	if _, e := fbuf.Peek(1); e != nil {
 		http.Error(w, fmt.Sprintf("400 Bad Request: empty body"), 400)
-	// } else {
-	// 	logger.Printf("PEEK: %v", z)
+		// } else {
+		// 	logger.Printf("PEEK: %v", z)
 	}
 	key, err := aostor.Put(realm, info, fbuf)
 	if err != nil {
