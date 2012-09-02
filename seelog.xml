@@ -1,7 +1,7 @@
 <seelog minlevel="debug">
     <outputs>
     	<splitter>
-	        <console formatid="console" threshold="debug" />
+	        <console formatid="console" />
 	        <buffered size="2048" flushperiod="10000" formatid="file">
 	        	<rollingfile type="size" maxsize="10485760" maxrolls="10" filename="/tmp/aostor.log"/>
 	        </buffered>

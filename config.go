@@ -38,7 +38,7 @@ const (
 	DefaultIndexThreshold = 10               // How many index cdb should be merged
 	DefaultContentHash    = "sha1"
 	DefaultHostport       = ":8341"
-	DefaultLogConf        = "seelog.xml"
+	DefaultLogConfFile    = "seelog.xml"
 	TestConfig            = `[dirs]
 base = /tmp/aostor
 staging = %(base)s/#(realm)s/staging
@@ -88,7 +88,7 @@ func ReadConf(fn string, realm string) (Config, error) {
 		return c, nil
 	}
 	if LogIsDisabled() {
-		UseLoggerFromConfigFile(DefaultLogConf)
+		UseLoggerFromConfigFile(DefaultLogConfFile)
 	}
 	c, err := readConf(fn, realm, configs[k_def])
 	if err != nil {
@@ -117,7 +117,7 @@ func readConf(fn string, realm string, common Config) (Config, error) {
 		logconf, err := conf.String("log", "config")
 		if err != nil {
 			fmt.Printf("cannot get log configuration: %s", err)
-			c.LogConf = DefaultLogConf
+			c.LogConf = DefaultLogConfFile
 		} else {
 			UseLoggerFromConfigFile(logconf)
 			c.LogConf = logconf

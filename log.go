@@ -12,9 +12,19 @@ import (
 	"errors"
 	seelog "github.com/cihub/seelog"
 	"io"
+	"log"
 )
 
 var logger seelog.LoggerInterface
+var DefaultLogConf = `<seelog minlevel="debug">
+    <outputs>
+        <console formatid="console" />
+    </outputs>
+    <formats>
+    	<format id="console" format="[%LEV] %Msg%n" />
+    	<format id="file" format="%Date %Time [%LEV] %RelFile %Func: %Msg%n" />
+    </formats>
+</seelog>`
 
 func init() {
 	DisableLog()
@@ -36,7 +46,9 @@ func GetLogger() seelog.LoggerInterface {
 // UseLogger uses a specified seelog.LoggerInterface to output library log.
 // Use this func if you are using Seelog logging system in your app.
 func UseLogger(newLogger seelog.LoggerInterface) {
-	logger = newLogger
+	if newLogger != nil {
+		logger = newLogger
+	}
 }
 
 // loads logger from config file
@@ -46,6 +58,14 @@ func UseLoggerFromConfigFile(filename string) {
 	}
 	newLogger, err := seelog.LoggerFromConfigAsFile(filename)
 	if err != nil {
+		log.Printf("cannot read %s: %s", filename, err)
+		if LogIsDisabled() {
+			newLogger, e := seelog.LoggerFromConfigAsString(DefaultLogConf)
+			if e != nil {
+				log.Printf("cannot load logger config: %s", e)
+			}
+			UseLogger(newLogger)
+		}
 		logger.Error("cannot read %s: %s", filename, err)
 	} else {
 		UseLogger(newLogger)

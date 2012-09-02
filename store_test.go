@@ -22,10 +22,14 @@ package aostor
 import (
 	"fmt"
 	"github.com/tgulacsi/go-cdb"
+	"io"
 	"math/rand"
 	"os"
+	"strings"
 	"testing"
 )
+
+var conf Config
 
 func initConfig() {
 	checkMerge = true
@@ -40,6 +44,14 @@ func initConfig() {
 			panic(err)
 		}
 		fh.Close()
+	}
+}
+
+func init() {
+	var err error
+	conf, err = ReadConf("", "test")
+	if err != nil {
+		logger.Error("cannot read conf: %s", err)
 	}
 }
 
@@ -78,10 +90,6 @@ func TestGet(c *testing.T) {
 }
 
 func TestCompact(c *testing.T) {
-	conf, err := ReadConf("", "test")
-	if err != nil {
-		c.Fatalf("cannot read conf: %s", err)
-	}
 	for j := uint(0); j < conf.IndexThreshold; j++ {
 		for i := 0; i < 1000+rand.Intn(100); i++ {
 			if _, err := testPut(); err != nil {
@@ -92,8 +100,27 @@ func TestCompact(c *testing.T) {
 		if err := CompactStaging("test", nil); err != nil {
 			c.Fatalf("compact staging error: %s", err)
 		}
+		dh, err := os.Open(conf.StagingDir)
+		if err != nil {
+			c.Fatalf("cannot open staging dir %s: %s", conf.StagingDir, err)
+		}
+		names, err := dh.Readdirnames(1024)
+		if err == nil || err == io.EOF {
+			bad := false
+			for _, fn := range names {
+				if strings.HasSuffix(fn, SuffInfo) {
+					c.Logf("after staging, %s still in the staging dir!", fn)
+					bad = true
+				}
+			}
+			if bad {
+				c.Fail()
+			}
+		} else {
+			c.Fatalf("cannot list staging dir %s: %s", conf.StagingDir, err)
+		}
 	}
-	if err := CompactIndices("test", 0); err != nil {
+	if err := CompactIndices("test", 0, nil); err != nil {
 		c.Fatalf("compact indices error: %s", err)
 	}
 	FillCaches(true)
@@ -101,10 +128,6 @@ func TestCompact(c *testing.T) {
 }
 
 func TestDeDup(c *testing.T) {
-	conf, err := ReadConf("", "test")
-	if err != nil {
-		c.Fatalf("cannot read conf: %s", err)
-	}
 	testPut()
 	testPut()
 	DeDup(conf.StagingDir, conf.ContentHash)
