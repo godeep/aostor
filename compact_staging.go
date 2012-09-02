@@ -58,18 +58,21 @@ func CompactStaging(realm string, onChange NotifyFunc) error {
 				return err
 			}
 			tarfn := realm + "-" + strNow()[:15] + "-" + uuid.String() + ".tar"
-			if err = CreateTar(conf.TarDir+"/"+tarfn, conf.StagingDir,
-				true, onChange); err != nil {
+			if err = CreateTar(conf.TarDir+"/"+tarfn, conf.StagingDir); err != nil {
 				return err
 			}
-			if err = os.Symlink(conf.TarDir+"/"+tarfn+".cdb",
+			tarfn_a := conf.TarDir + "/" + tarfn
+			if err = os.Symlink(tarfn_a+".cdb",
 				conf.IndexDir+"/L00/"+tarfn+".cdb"); err != nil {
+				return err
+			}
+			if err = cleanupStaging(conf.StagingDir, tarfn_a); err != nil {
 				return err
 			}
 			if onChange != nil {
 				onChange()
 			}
-			if err = CompactIndices(realm, 0); err != nil {
+			if err = CompactIndices(realm, 0, onChange); err != nil {
 				return err
 			}
 			return stopIteration
@@ -153,12 +156,8 @@ type fElt struct {
 }
 type listDirFunc func(fElt) error
 
-//Moves files from the given directory into a given tar file
-func CreateTar(tarfn string, dirname string, move bool, onChange NotifyFunc) error {
-	var tbd []string
-	if move {
-		tbd = make([]string, 0)
-	}
+// Copies files from the given directory into a given tar file
+func CreateTar(tarfn string, dirname string) error {
 	tw, fh, pos, err := OpenForAppend(tarfn)
 	//fh, err := os.OpenFile(tarfn, os.O_APPEND|os.O_CREATE, 0640)
 	if err != nil {
@@ -213,9 +212,6 @@ func CreateTar(tarfn string, dirname string, move bool, onChange NotifyFunc) err
 			}
 			// c <- cdb.Element{StrToBytes(elt.info.Key), elt.info.Bytes()}
 			adder(cdb.Element{StrToBytes(elt.info.Key), elt.info.Bytes()})
-			if move {
-				tbd = append(tbd, elt.infoFn, elt.dataFn)
-			}
 		}
 		return nil
 	}
@@ -239,8 +235,6 @@ func CreateTar(tarfn string, dirname string, move bool, onChange NotifyFunc) err
 		if err != nil {
 			logger.Critical("cannot append %s", elt.dataFn)
 			os.Exit(1)
-		} else if move {
-			tbd = append(tbd, elt.infoFn, elt.dataFn)
 		}
 
 		adder(cdb.Element{StrToBytes(elt.info.Key), elt.info.Bytes()})
@@ -254,17 +248,6 @@ func CreateTar(tarfn string, dirname string, move bool, onChange NotifyFunc) err
 	// err = <-d
 	if err != nil {
 		logger.Error("cdbMake error: %s", err)
-	}
-	if move && err == nil && len(tbd) > 0 {
-		if onChange != nil {
-			onChange()
-		}
-		for _, fn := range tbd {
-			os.Remove(fn)
-		}
-		if onChange != nil {
-			onChange()
-		}
 	}
 	return err
 }
@@ -361,6 +344,7 @@ func listDirMap(path string, hash string, hamster listDirFunc) error {
 	return nil
 }
 
+// appends file to tar
 func appendFile(tw *tar.Writer, tfh io.Seeker, fn string) (pos1 uint64, pos2 uint64, err error) {
 	hdr, err := FileTarHeader(fn)
 	if err != nil {
@@ -412,6 +396,34 @@ func appendLink(tw *tar.Writer, tfh io.Seeker, fn string) (pos1 uint64, pos2 uin
 	}
 	pos2 = uint64(p)
 	return
+}
+
+// removes files already in tar
+func cleanupStaging(path string, tarfn string) error {
+	cfh, err := os.Open(tarfn + ".cdb")
+	if err != nil {
+		return err
+	}
+	defer cfh.Close()
+	endings := []string{SuffData + "bz2", SuffData + "gz", SuffData, SuffLink}
+	return cdb.DumpMap(cfh, func(elt cdb.Element) error {
+		base := path + "/" + BytesToStr(elt.Key)
+		// logger.Trace("base %s exists? %s", base, fileExists(base+SuffInfo))
+		if fileExists(base + SuffInfo) {
+			for _, end := range endings {
+				err = os.Remove(base + end)
+				if err == nil {
+					err = os.Remove(base + SuffInfo)
+					if err != nil {
+						logger.Error("error removing %s: %s", base+SuffInfo, err)
+						return err
+					}
+					break
+				}
+			}
+		}
+		return nil
+	})
 }
 
 func inBs(size int64) uint64 {

@@ -39,7 +39,7 @@ const (
 var checkMerge bool = false
 
 //Compact compacts the index cdbs
-func CompactIndices(realm string, level uint) error {
+func CompactIndices(realm string, level uint, onChange func()) error {
 	conf, err := ReadConf("", realm)
 	if err != nil {
 		return err
