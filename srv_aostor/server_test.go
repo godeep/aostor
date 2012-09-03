@@ -133,38 +133,33 @@ type pLoad struct {
 }
 
 func payloadGenerator(cnt int, mul int) (<-chan pLoad, error) {
-	outch := make(chan pLoad, mul)
+	outch := make(chan pLoad, 2*mul)
 
 	go func() {
-		length := 1
+		length := int64(0)
+		buf := bytes.NewBuffer(nil)
 		for j := 0; j < cnt; j++ {
-			length = (j + 1) * 8
-			buf := make([]byte, length)
-			n, err := urandom.Read(buf)
+			n, err := io.CopyN(buf, urandom, 32*(1<<10))
 			if err != nil {
-				log.Printf("read %s (%d): %s", buf, n, err)
-				for i := 0; i < len(buf); i++ {
-					buf[i] = uint8(i)
-				}
-			} else {
-				buf = buf[:n]
+				log.Panicf("cannot read %s: %s", urandom, err)
 			}
-			if len(buf) == 0 {
+			length += n
+			if len(buf.Bytes()) == 0 {
 				log.Fatalf("zero payload (length=%d n=%d)", length, n)
 			}
-			reqbuf := bytes.NewBuffer(make([]byte, 0, 2*len(buf)+256))
+			reqbuf := bytes.NewBuffer(make([]byte, 0, 2*length+256))
 			mw := multipart.NewWriter(reqbuf)
 			w, err := mw.CreateFormFile("upfile", fmt.Sprintf("test-%d", j+1))
 			if err != nil {
 				log.Panicf("cannot create FormFile: %s", err)
 			}
-			n, err = w.Write(buf)
+			m, err := w.Write(buf.Bytes())
 			if err != nil {
-				log.Printf("written payload is %d bytes (%s)", n, err)
+				log.Printf("written payload is %d bytes (%s)", m, err)
 			}
 			mw.Close()
-			payload := pLoad{buf, reqbuf.Bytes(),
-				mw.FormDataContentType(), uint64(len(buf))}
+			payload := pLoad{buf.Bytes(), reqbuf.Bytes(),
+				mw.FormDataContentType(), uint64(len(buf.Bytes()))}
 			for i := 0; i < mul; i++ {
 				outch <- payload
 			}
@@ -200,7 +195,7 @@ func upload(payload pLoad, dump bool) ([]byte, error) {
 		if e != nil {
 			log.Panicf("cannot dump request %s: %s", req, e)
 		} else {
-			log.Printf("\n>>>>>>\nrequest:\n%s", buf)
+			log.Printf("\n>>>>>>\nrequest:\n%v", buf)
 		}
 	}
 	resp, err := http.DefaultClient.Do(req)
@@ -210,7 +205,7 @@ func upload(payload pLoad, dump bool) ([]byte, error) {
 			log.Printf("cannot dump request %s: %s", req, e)
 			return nil, nil
 		} else {
-			log.Printf("\n>>>>>>\nrequest:\n%s", buf)
+			log.Printf("\n>>>>>>\nrequest:\n%v", buf)
 		}
 	}
 	if err != nil {
@@ -224,7 +219,7 @@ func upload(payload pLoad, dump bool) ([]byte, error) {
 		if e != nil {
 			log.Printf("cannot dump response %s: %s", resp, e)
 		} else {
-			log.Printf("\n<<<<<<\nresponse:\n%s", buf)
+			log.Printf("\n<<<<<<\nresponse:\n%v", buf)
 		}
 	}
 	if err != nil {
@@ -240,7 +235,7 @@ func get(key []byte, payload pLoad) error {
 	resp, err := http.Get(url + "/" + aostor.BytesToStr(key))
 	if err != nil {
 		return fmt.Errorf("error Getting %s: %s",
-			url + "/" + aostor.BytesToStr(key), err)
+			url+"/"+aostor.BytesToStr(key), err)
 	}
 	defer resp.Body.Close()
 	if !(200 <= resp.StatusCode && resp.StatusCode <= 299) {

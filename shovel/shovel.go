@@ -49,10 +49,11 @@ func main() {
 
 	if *todo_tar {
 		tarfn, dirname := flag.Arg(0), flag.Arg(1)
-		if err := aostor.CreateTar(tarfn, dirname, true, onChange); err != nil {
+		if err := aostor.CreateTar(tarfn, dirname); err != nil {
 			fmt.Printf("ERROR shoveling %s to %s: %s", tarfn, dirname, err)
 		} else {
 			fmt.Println("OK")
+			onChange()
 		}
 	} else if *todo_realm != "" {
 		realm := *todo_realm
@@ -67,5 +68,5 @@ prg -t tar dir [-p pid]
   or
 prg -r realm [-p pid]
 `)
-			}
+	}
 }
