@@ -135,42 +135,31 @@ func payloadGenerator(cnt int, mul int) (<-chan pLoad, error) {
 	outch := make(chan pLoad, mul)
 
 	go func() {
-		length := 1
+		length := int64(0)
+		buf := bytes.NewBuffer(nil)
 		for j := 0; j < cnt; j++ {
-			length = (j + 1) * 8
-			buf := make([]byte, length)
-			n, err := urandom.Read(buf)
+			n, err := io.CopyN(buf, urandom, 32 * (1<<10))
 			if err != nil {
-				log.Printf("read %s (%d): %s", buf, n, err)
-				for i := 0; i < len(buf); i++ {
-					buf[i] = uint8(i)
-				}
-			} else {
-				buf = buf[:n]
+				log.Panicf("cannot read %s: %s", urandom, err)
 			}
-			if len(buf) == 0 {
+			length += n
+			if len(buf.Bytes()) == 0 {
 				log.Fatalf("zero payload (length=%d n=%d)", length, n)
 			}
-			reqbuf := bytes.NewBuffer(make([]byte, 0, 2*len(buf)+256))
+			reqbuf := bytes.NewBuffer(make([]byte, 0, 2*length+256))
 			mw := multipart.NewWriter(reqbuf)
 			w, err := mw.CreateFormFile("upfile", fmt.Sprintf("test-%d", j+1))
 			if err != nil {
 				log.Panicf("cannot create FormFile: %s", err)
 			}
-			n, err = w.Write(buf)
+			m, err := w.Write(buf.Bytes())
 			if err != nil {
-				log.Printf("written payload is %d bytes (%s)", n, err)
+				log.Printf("written payload is %d bytes (%s)", m, err)
 			}
 			mw.Close()
-			payload := pLoad{reqbuf.Bytes(), mw.FormDataContentType(), uint64(len(buf))}
+			payload := pLoad{reqbuf.Bytes(), mw.FormDataContentType(), uint64(length)}
 			for i := 0; i < mul; i++ {
-				// select {
-				// case outch <- payload: //pass
-				// default:
-				// 	log.Printf("%d*%d blocked?", j, i)
 				outch <- payload
-				// 	log.Printf("%d*%d no", j, i)
-				// }
 			}
 		}
 		close(outch)
@@ -201,7 +190,7 @@ func upload(payload pLoad, dump bool) ([]byte, error) {
 		if e != nil {
 			log.Panicf("cannot dump request %s: %s", req, e)
 		} else {
-			log.Printf("\n>>>>>>\nrequest:\n%s", buf)
+			log.Printf("\n>>>>>>\nrequest:\n%v", buf)
 		}
 	}
 	resp, err := http.DefaultClient.Do(req)
@@ -210,7 +199,7 @@ func upload(payload pLoad, dump bool) ([]byte, error) {
 		if e != nil {
 			log.Panicf("cannot dump request %s: %s", req, e)
 		} else {
-			log.Printf("\n>>>>>>\nrequest:\n%s", buf)
+			log.Printf("\n>>>>>>\nrequest:\n%v", buf)
 		}
 	}
 	if err != nil {
@@ -224,7 +213,7 @@ func upload(payload pLoad, dump bool) ([]byte, error) {
 		if e != nil {
 			log.Printf("cannot dump response %s: %s", resp, e)
 		} else {
-			log.Printf("\n<<<<<<\nresponse:\n%s", buf)
+			log.Printf("\n<<<<<<\nresponse:\n%v", buf)
 		}
 	}
 	if err != nil {
@@ -248,7 +237,7 @@ func get(key []byte, length uint64) error {
 	c := aostor.NewCounter()
 	buf, err := ioutil.ReadAll(io.TeeReader(resp.Body, c))
 	if err != nil {
-		return fmt.Errorf("error reading from %s: %s", resp.Body, err)
+		return fmt.Errorf("error reading from %v: %s", resp.Body, err)
 	}
 	if c.Num != length {
 		return fmt.Errorf("length mismatch: read %d bytes (%d content-length=%d) for %s, required %d\n%s",
