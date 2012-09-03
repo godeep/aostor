@@ -107,8 +107,8 @@ func (info *Info) Copy(header http.Header) {
 
 // copies data from textproto.MIMEHeader
 func (info *Info) CopyFrom(header map[string][]string) {
-	for k, v := range header {
-		info.Add(k, strings.Join(v, ";"))
+	if v, ok := header["Content-Type"]; ok {
+		info.Add("Content-Type", strings.Join(v, ","))
 	}
 }
 
