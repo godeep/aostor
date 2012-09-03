@@ -68,7 +68,7 @@ func TestParallelStore(t *testing.T) {
 		bp := int64(0)
 		for payload := range payloadch {
 			if err = checkedUpload(payload, dump && bp < 1); err != nil {
-				errch <- fmt.Errorf("error uploading %s: %s", payload, err)
+				errch <- fmt.Errorf("error uploading %v: %s", payload, err)
 				break
 			}
 			bp += int64(len(payload.encoded))
@@ -133,13 +133,13 @@ type pLoad struct {
 }
 
 func payloadGenerator(cnt int, mul int) (<-chan pLoad, error) {
-	outch := make(chan pLoad, 2*mul)
+	outch := make(chan pLoad, 1)
 
 	go func() {
 		length := int64(0)
 		buf := bytes.NewBuffer(nil)
-		for j := 0; j < cnt; j++ {
-			n, err := io.CopyN(buf, urandom, 32*(1<<10))
+		for j := 0; j < cnt * mul; j++ {
+			n, err := io.CopyN(buf, urandom, 32)
 			if err != nil {
 				log.Panicf("cannot read %s: %s", urandom, err)
 			}
@@ -158,11 +158,8 @@ func payloadGenerator(cnt int, mul int) (<-chan pLoad, error) {
 				log.Printf("written payload is %d bytes (%s)", m, err)
 			}
 			mw.Close()
-			payload := pLoad{buf.Bytes(), reqbuf.Bytes(),
+			outch <- pLoad{buf.Bytes(), reqbuf.Bytes(),
 				mw.FormDataContentType(), uint64(len(buf.Bytes()))}
-			for i := 0; i < mul; i++ {
-				outch <- payload
-			}
 		}
 		close(outch)
 	}()
@@ -193,7 +190,7 @@ func upload(payload pLoad, dump bool) ([]byte, error) {
 	if dump {
 		buf, e := httputil.DumpRequestOut(req, true)
 		if e != nil {
-			log.Panicf("cannot dump request %s: %s", req, e)
+			log.Panicf("cannot dump request %v: %s", req, e)
 		} else {
 			log.Printf("\n>>>>>>\nrequest:\n%v", buf)
 		}
@@ -202,7 +199,7 @@ func upload(payload pLoad, dump bool) ([]byte, error) {
 	if err != nil {
 		buf, e := httputil.DumpRequestOut(req, true)
 		if e != nil {
-			log.Printf("cannot dump request %s: %s", req, e)
+			log.Printf("cannot dump request %v: %s", req, e)
 			return nil, nil
 		} else {
 			log.Printf("\n>>>>>>\nrequest:\n%v", buf)
@@ -217,7 +214,7 @@ func upload(payload pLoad, dump bool) ([]byte, error) {
 	if err != nil || dump {
 		buf, e := httputil.DumpResponse(resp, true)
 		if e != nil {
-			log.Printf("cannot dump response %s: %s", resp, e)
+			log.Printf("cannot dump response %v: %s", resp, e)
 		} else {
 			log.Printf("\n<<<<<<\nresponse:\n%v", buf)
 		}
@@ -246,9 +243,9 @@ func get(key []byte, payload pLoad) error {
 	if err != nil {
 		buf, e := httputil.DumpResponse(resp, true)
 		if e != nil {
-			log.Printf("cannot dump response %s: %s", resp, e)
+			log.Printf("cannot dump response %v: %s", resp, e)
 		}
-		return fmt.Errorf("error reading from %s: %s\n<<<<<<\nresponse:\n%s",
+		return fmt.Errorf("error reading from %s: %s\n<<<<<<\nresponse:\n%v",
 			resp.Body, err, buf)
 	}
 	if c.Num != payload.length {
@@ -256,7 +253,7 @@ func get(key []byte, payload pLoad) error {
 			c.Num, len(buf), resp.ContentLength, key, payload.length, resp)
 	}
 	if payload.data != nil && uint64(len(payload.data)) == payload.length && !bytes.Equal(payload.data, buf) {
-		return fmt.Errorf("data mismatch: read %s, asserted %s", buf, payload.data)
+		return fmt.Errorf("data mismatch: read %v, asserted %v", buf, payload.data)
 	}
 	return nil
 }
