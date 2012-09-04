@@ -301,8 +301,10 @@ func findAtStaging(uuid string, path string) (info Info, reader io.Reader, err e
 		logger.Error("cannot read info file %s: %s", ifh, err)
 		return
 	}
-	var suffixes = []string{SuffData + "bz2", SuffData + "gz", SuffLink, SuffData}
+	// var suffixes = []string{SuffData + "bz2", SuffData + "gz", SuffLink, SuffData}
+	var suffixes = []string{SuffData, SuffLink}
 	var fn string
+	ct := info.Get("Content-Type")
 	for _, suffix := range suffixes {
 		fn = path + "/" + uuid + suffix
 		if fileExists(fn) {
@@ -313,12 +315,25 @@ func findAtStaging(uuid string, path string) (info Info, reader io.Reader, err e
 			}
 			if suffix == SuffLink {
 				fn = FindLinkOrigin(fn)
-				suffix = fn[strings.LastIndex(fn, "#"):]
+				// suffix = fn[strings.LastIndex(fn, "#"):]
+				ifn := fn[:len(fn)-1] + "!"
+				ifh_o, err := os.Open(ifn)
+				if err != nil {
+					logger.Error("fintAtStaging(%s) symlink %s error: %s", uuid, ifn, err)
+					return info, nil, err
+				}
+				info_o, err := ReadInfo(ifh_o)
+				ifh_o.Close()
+				if err != nil {
+					logger.Error("cannot read symlink info %s: %s", ifh_o, err)
+					return info, nil, err
+				}
+				ct = info_o.Get("Content-Type")
 			}
-			switch suffix {
-			case SuffData + "bz2":
+			switch ct {
+			case "bz2":
 				reader, err = bzip2.NewReader(fh), nil
-			case SuffData + "gz":
+			case "gzip":
 				reader, err = gzip.NewReader(fh)
 			default:
 				reader, err = fh, nil

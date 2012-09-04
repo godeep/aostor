@@ -85,6 +85,7 @@ func ReadItem(tarfn string, pos int64) (ret io.Reader, err error) {
 		err = &SymlinkError{hdr.Linkname}
 	case hdr.Typeflag != tar.TypeReg && hdr.Typeflag != tar.TypeRegA:
 		err = NotRegularFile
+	// TODO: cut decompression if not used
 	case strings.HasSuffix(hdr.Name, SuffData+"bz2"):
 		logger.Trace("bz[%s] length=%d", hdr.Name, hdr.Size)
 		ret = bzip2.NewReader(io.LimitReader(tr, hdr.Size))

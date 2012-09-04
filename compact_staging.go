@@ -253,7 +253,7 @@ func CreateTar(tarfn string, dirname string) error {
 }
 
 func listDirMap(path string, hash string, hamster listDirFunc) error {
-	possibleEndings := []string{"bz2", "gz"}
+	possibleEndings := []string{SuffData, SuffLink}
 	dh, err := os.Open(path)
 	if err != nil {
 		logger.Critical("cannot open dir %s: %s", path, err)
@@ -299,7 +299,7 @@ func listDirMap(path string, hash string, hamster listDirFunc) error {
 				elt.dataFn = pref + SuffLink
 				elt.isSymlink = true
 			} else {
-				pref += SuffData
+				// pref += SuffData
 				for _, end := range possibleEndings {
 					// logger.Printf("checking %s: %s", pref + end, fileExists(pref+end))
 					if fileExists(pref + end) {
@@ -405,7 +405,7 @@ func cleanupStaging(path string, tarfn string) error {
 		return err
 	}
 	defer cfh.Close()
-	endings := []string{SuffData + "bz2", SuffData + "gz", SuffData, SuffLink}
+	endings := []string{SuffData, SuffLink}
 	return cdb.DumpMap(cfh, func(elt cdb.Element) error {
 		base := path + "/" + BytesToStr(elt.Key)
 		// logger.Trace("base %s exists? %s", base, fileExists(base+SuffInfo))

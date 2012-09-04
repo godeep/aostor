@@ -10,10 +10,13 @@ Lots of small files, slow fs over 1000 files/dir. Possible archiving after a lon
 Store files in tars (say, 1Gb each), right with the metadata, too.
 
 ## Tar layout
-Each stored file gets a unique key (UUID), data is stored as <key>#<compress_method>, i.e. 213f34a8dc1d213f34a8dc1d213f34a8#bz2.
+Each stored file gets a unique key (UUID), data is stored as <key>#, i.e. 213f34a8dc1d213f34a8dc1d213f34a8#.
 The metadata (info) is stored in <key>!, the possible symbolic link (for per-tar deduping) is as <key>@.
 
 The info is in HTTP header format ("\n" separated lines, ": " separated key and value), each aostor-specific header (id, index position (ipos) and data position (dpos)) starting with X-Aostor-.
+
+Compression, encryption methods are stored in the Content-Encoding header.
+Mime-type in Content-Type.
 
 ### Indexing
 Tar needs an index, to be able retrieve files in random order. For this, each tar gets a .cdb companion (D. J. Bernstein's Constant DataBase).

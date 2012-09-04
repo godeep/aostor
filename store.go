@@ -61,9 +61,13 @@ func Put(realm string, info Info, data io.Reader) (key string, err error) {
 	}
 	key = info.Key
 	info.Ipos, info.Dpos = 0, 0
+	if StoreCompressMethod != "" {
+		info.Add("Content-Encoding", StoreCompressMethod)
+	}
 
-	end := compressor.ShorterMethod(StoreCompressMethod)
-	dfh, err := os.OpenFile(conf.StagingDir+"/"+key+SuffData+end,
+	// end := compressor.ShorterMethod(StoreCompressMethod)
+	// dfh, err := os.OpenFile(conf.StagingDir+"/"+key+SuffData+end,
+	dfh, err := os.OpenFile(conf.StagingDir+"/"+key+SuffData,
 		os.O_WRONLY|os.O_CREATE, 0640)
 	if err != nil {
 		return
