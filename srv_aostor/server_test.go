@@ -43,8 +43,7 @@ var (
 	hostport = flag.String("http", "", "already running server address")
 	N        = flag.Int("N", 100, "request number")
 	url      string
-	devnull  io.Writer
-	urandom  io.Reader
+	// devnull  io.Writer
 	closer   func()
 )
 
@@ -68,7 +67,7 @@ func TestParallelStore(t *testing.T) {
 		bp := int64(0)
 		for payload := range payloadch {
 			if err = checkedUpload(payload, dump && bp < 1); err != nil {
-				errch <- fmt.Errorf("error uploading %v: %s", payload, err)
+				errch <- fmt.Errorf("error uploading: %s", err)
 				break
 			}
 			bp += int64(len(payload.encoded))
@@ -96,17 +95,6 @@ func startServer() (func(), error) {
 		return nil, nil
 	}
 	flag.Parse()
-	var err error
-	urandom, err = os.Open("/dev/urandom")
-	if err != nil {
-		return nil, err
-	}
-	urandom = bufio.NewReader(urandom)
-	devnull, err = os.OpenFile("/dev/null", os.O_WRONLY, 0600)
-	if err != nil {
-		return nil, err
-	}
-	// go main()
 
 	log.Printf("hostport=%s = %s", hostport, *hostport)
 	if *hostport == "" {
@@ -134,6 +122,12 @@ type pLoad struct {
 
 func payloadGenerator(cnt int, mul int) (<-chan pLoad, error) {
 	outch := make(chan pLoad, 1)
+
+	urand, err := os.Open("/dev/urandom")
+	if err != nil {
+		return nil, err
+	}
+	urandom := bufio.NewReader(urand)
 
 	go func() {
 		length := int64(0)
