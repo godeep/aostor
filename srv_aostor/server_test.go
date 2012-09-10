@@ -32,6 +32,7 @@ import (
 	"os/exec"
 	"runtime"
 	// "strings"
+	"sync"
 	"testing"
 	"time"
 	// "testing/iotest"
@@ -45,6 +46,9 @@ var (
 	url      string
 	// devnull  io.Writer
 	closer   func()
+	urandom	io.Reader
+	payloadbuf = bytes.NewBuffer(nil)
+	payload_lock = sync.Mutex{}
 )
 
 func TestParallelStore(t *testing.T) {
@@ -57,15 +61,16 @@ func TestParallelStore(t *testing.T) {
 		defer closer()
 	}
 	log.Printf("parallel=%v (%d)", parallel, *parallel)
-	payloadch, err := payloadGenerator(*N, *parallel)
-	if err != nil {
-		t.Fatalf("error starting payloadGenerator(%d, %d): %s", *N, *parallel, err)
-	}
 	errch := make(chan error, 1+*parallel)
 	donech := make(chan int64, *parallel)
 	upl := func(dump bool) {
 		bp := int64(0)
-		for payload := range payloadch {
+		for i := 0; i < *N; i++ {
+			payload, err := getPayload()
+			if err != nil {
+				errch <- fmt.Errorf("error getting payload(%d): %s", i, err)
+				break
+			}
 			if err = checkedUpload(payload, dump && bp < 1); err != nil {
 				errch <- fmt.Errorf("error uploading: %s", err)
 				break
@@ -91,9 +96,16 @@ func TestParallelStore(t *testing.T) {
 }
 
 func startServer() (func(), error) {
-	if url != "" {
+	urand, err := os.Open("/dev/urandom")
+	if err != nil {
+		return nil, err
+	}
+	urandom = bufio.NewReader(urand)
+
+  	if url != "" {
 		return nil, nil
 	}
+
 	flag.Parse()
 
 	log.Printf("hostport=%s = %s", hostport, *hostport)
@@ -120,45 +132,33 @@ type pLoad struct {
 	length  uint64
 }
 
-func payloadGenerator(cnt int, mul int) (<-chan pLoad, error) {
-	outch := make(chan pLoad, 1)
 
-	urand, err := os.Open("/dev/urandom")
+func getPayload() (pLoad, error) {
+	payload_lock.Lock()
+	defer payload_lock.Unlock()
+	n, err := io.CopyN(payloadbuf, urandom, 8)
 	if err != nil {
-		return nil, err
+		// payload_lock.Unlock()
+		log.Panicf("cannot read %s: %s", urandom, err)
 	}
-	urandom := bufio.NewReader(urand)
-
-	go func() {
-		length := int64(0)
-		buf := bytes.NewBuffer(nil)
-		for j := 0; j < cnt * mul; j++ {
-			n, err := io.CopyN(buf, urandom, 32)
-			if err != nil {
-				log.Panicf("cannot read %s: %s", urandom, err)
-			}
-			length += n
-			if len(buf.Bytes()) == 0 {
-				log.Fatalf("zero payload (length=%d n=%d)", length, n)
-			}
-			reqbuf := bytes.NewBuffer(make([]byte, 0, 2*length+256))
-			mw := multipart.NewWriter(reqbuf)
-			w, err := mw.CreateFormFile("upfile", fmt.Sprintf("test-%d", j+1))
-			if err != nil {
-				log.Panicf("cannot create FormFile: %s", err)
-			}
-			m, err := w.Write(buf.Bytes())
-			if err != nil {
-				log.Printf("written payload is %d bytes (%s)", m, err)
-			}
-			mw.Close()
-			outch <- pLoad{buf.Bytes(), reqbuf.Bytes(),
-				mw.FormDataContentType(), uint64(len(buf.Bytes()))}
-		}
-		close(outch)
-	}()
-
-	return outch, nil
+	buf := payloadbuf.Bytes()
+	length := len(buf)
+	if length == 0 {
+		log.Fatalf("zero payload (length=%d read=%d)", length, n)
+	}
+	reqbuf := bytes.NewBuffer(make([]byte, 0, 2*length+256))
+	mw := multipart.NewWriter(reqbuf)
+	w, err := mw.CreateFormFile("upfile", fmt.Sprintf("test-%d",length))
+	if err != nil {
+		log.Panicf("cannot create FormFile: %s", err)
+	}
+	m, err := w.Write(buf)
+	if err != nil {
+		log.Printf("written payload is %d bytes (%s)", m, err)
+	}
+	mw.Close()
+	return pLoad{buf, reqbuf.Bytes(),
+		mw.FormDataContentType(), uint64(length)}, nil
 }
 
 func checkedUpload(payload pLoad, dump bool) error {
