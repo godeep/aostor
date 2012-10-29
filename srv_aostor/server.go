@@ -75,6 +75,7 @@ func prepareServer(conf *aostor.Config) *http.Server {
 		http.HandleFunc("/"+realm+"/", baseHandler)
 		http.HandleFunc("/"+realm+"/up", upHandler)
 	}
+	http.HandleFunc("/_signal", sigHandler)
 
 	s := &http.Server{
 		Addr:           conf.Hostport,
@@ -87,14 +88,16 @@ func prepareServer(conf *aostor.Config) *http.Server {
 
 func recvChangeSig(sigchan <-chan os.Signal) {
 	// aostor.FillCaches(true)
-	for {
-		_, ok := <-sigchan
-		if !ok {
-			break
-		}
-		logger.Printf("received Change signal, calling FillCaches")
+	for _ = range sigchan {
+		logger.Printf("\n\n***\nreceived Change signal, calling FillCaches")
 		aostor.FillCaches(true)
+		logger.Printf("\n***\n\n")
 	}
+}
+func sigHandler(w http.ResponseWriter, r *http.Request) {
+	logger.Printf("SIGNAL")
+	aostor.FillCaches(true)
+	w.Write([]byte("OK"))
 }
 
 func baseHandler(w http.ResponseWriter, r *http.Request) {
@@ -104,7 +107,12 @@ func baseHandler(w http.ResponseWriter, r *http.Request) {
 	logger.Printf("realm=%s path=%s", realm, path)
 
 	if r.Method == "GET" || r.Method == "HEAD" {
-		info, data, err := aostor.Get(realm, path)
+		key, err := aostor.NewUUIDFromString(path)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("404 Bad key %s", path), 404)
+			return
+		}
+		info, data, err := aostor.Get(realm, key)
 		if err != nil {
 			logger.Print(err)
 			http.Error(w, fmt.Sprintf("404 Page Not Found (%s): %s", path, err), 404)
@@ -120,6 +128,7 @@ func baseHandler(w http.ResponseWriter, r *http.Request) {
 			} else {
 				logger.Printf("written %d bytes", n)
 			}
+			return
 		}
 	} else if r.Method == "POST" {
 		r.URL.Path = "/" + realm + "/up/" + path

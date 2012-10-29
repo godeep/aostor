@@ -19,6 +19,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"syscall"
 	"unosoft.hu/aostor"
@@ -29,7 +30,9 @@ var logger = aostor.GetLogger()
 func main() {
 	defer aostor.FlushLog()
 	var pid int
+	var hostport string
 	flag.IntVar(&pid, "p", 0, "pid to SIGUSR1 on change")
+	flag.StringVar(&hostport, "hostport", "", "host:port")
 	todo_tar := flag.Bool("t", false, "shovel tar to dir")
 	todo_realm := flag.String("r", "", "compact realm")
 	flag.Parse()
@@ -37,11 +40,23 @@ func main() {
 	var onChange aostor.NotifyFunc
 	if pid > 0 {
 		process, err := os.FindProcess(pid)
+		if hostport != "" {
+			onChange = func() {
+				resp, _ := http.Get("http://" + hostport + "/_signal")
+				if resp != nil && resp.Body != nil {
+					resp.Body.Close()
+				}
+			}
+		}
 		if err != nil {
 			logger.Warn("cannot find pid %d: %s", pid, err)
 		} else {
+			oco := onChange
 			onChange = func() {
 				process.Signal(syscall.SIGUSR1)
+				if oco != nil {
+					oco()
+				}
 			}
 		}
 
@@ -70,3 +85,5 @@ prg -r realm [-p pid]
 `)
 	}
 }
+
+func Buzz()

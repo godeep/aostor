@@ -39,12 +39,10 @@ import (
 )
 
 var (
-	url string
-	// devnull  io.Writer
-	closer       func()
 	urandom      io.Reader
 	payloadbuf   = bytes.NewBuffer(nil)
 	payload_lock = sync.Mutex{}
+	shovelLock   = sync.Mutex{}
 )
 
 type Server struct {
@@ -55,20 +53,43 @@ type Server struct {
 
 // if called from command-line, start the server and push it under load!
 func main() {
-	hostport := flag.String("http", "", "already running server's address0")
+	defer aostor.FlushLog()
+	hostport := flag.String("hostport", "", "already running server's address0")
 	flag.Parse()
 	srv, err := StartServer(*hostport)
 	if err != nil {
 		log.Panicf("error starting server: %s", err)
 	}
-	if closer != nil {
-		defer closer()
-	}
+	defer func() {
+		if srv.Close != nil {
+			srv.Close()
+		}
+	}()
 
-	for i := 1; i < 100; i++ {
+	urlch := make(chan string, 1000)
+	defer close(urlch)
+	go func(urlch <-chan string) {
+		for url := range urlch {
+			// continue //dangerous during Shovel!
+
+			shovelLock.Lock()
+			resp, e := http.Get(url)
+			shovelLock.Unlock()
+			if resp != nil && resp.Body != nil {
+				resp.Body.Close()
+			}
+			if e != nil {
+				log.Panicf("error with http.Get(%s): %s", url, e)
+			}
+			if !(200 <= resp.StatusCode && resp.StatusCode <= 299) {
+				log.Panicf("STATUS=%s", resp.Status)
+			}
+		}
+	}(urlch)
+	for i := 4; i < 100; i++ {
 		log.Printf("starting round %d...", i)
-		if err = OneRound(i, 1000); err != nil {
-			log.Printf("error with round %d: %s", err)
+		if err = OneRound(srv.Url, i, 100, urlch, i == 1); err != nil {
+			log.Printf("error with round %d: %s", i, err)
 			break
 		}
 		log.Printf("starting shovel of %d...", i)
@@ -79,27 +100,32 @@ func main() {
 	}
 }
 
-func OneRound(parallel, N int) (err error) {
+func OneRound(baseUrl string, parallel, N int, urlch chan<- string, dump bool) (err error) {
 	errch := make(chan error, 1+parallel)
 	donech := make(chan int64, parallel)
 	upl := func(dump bool) {
 		bp := int64(0)
+		var url string
 		for i := 0; i < N; i++ {
 			payload, err := getPayload()
 			if err != nil {
 				errch <- fmt.Errorf("error getting payload(%d): %s", i, err)
 				break
 			}
-			if err = CheckedUpload(payload, dump && bp < 1); err != nil {
+			if url, err = CheckedUpload(baseUrl, payload, dump && bp < 1); err != nil {
 				errch <- fmt.Errorf("error uploading: %s", err)
 				break
 			}
 			bp += int64(len(payload.encoded))
+			select {
+			case urlch <- url:
+			default:
+			}
 		}
 		donech <- bp
 	}
 	for j := 0; j < parallel; j++ {
-		go upl(j < 1)
+		go upl(dump && j < 1)
 	}
 	gbp := int64(0)
 	for i := 0; i < parallel; {
@@ -128,22 +154,26 @@ func StartServer(hostport string) (srv Server, err error) {
 	}
 
 	log.Printf("hostport=%s", hostport)
-	if hostport == "" {
-		c, e := aostor.ReadConf("", "test")
-		if e != nil {
-			err = e
-			return
-		}
-		url = "http://" + c.Hostport + "/test"
-		cmd := exec.Command("./srv_aostor")
-		if err = cmd.Start(); err != nil {
-			return
-		}
-		time.Sleep(1 * time.Second)
-		srv.Pid = cmd.Process.Pid
-		srv.Close = func() { cmd.Process.Kill() }
+	if hostport != "" {
+		srv.Url = "http://" + hostport + "/test"
+		return
 	}
-	srv.Url = "http://" + hostport + "/test"
+	c, e := aostor.ReadConf("", "test")
+	if e != nil {
+		err = e
+		return
+	}
+	srv.Url = "http://" + c.Hostport + "/test"
+	cmd := exec.Command("./srv_aostor")
+	if err = cmd.Start(); err != nil {
+		return
+	}
+	time.Sleep(1 * time.Second)
+	srv.Pid = cmd.Process.Pid
+	srv.Close = func() {
+		aostor.FlushLog()
+		cmd.Process.Kill()
+	}
 	return
 }
 
@@ -152,6 +182,8 @@ func Shovel(pid int) error {
 	if pid > 0 {
 		args = append(args, fmt.Sprintf("-p=%d", pid))
 	}
+	shovelLock.Lock()
+	defer shovelLock.Unlock()
 	cmd := exec.Command("./shovel", args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -193,21 +225,21 @@ func getPayload() (PLoad, error) {
 		mw.FormDataContentType(), uint64(length)}, nil
 }
 
-func CheckedUpload(payload PLoad, dump bool) error {
-	key, err := Upload(payload, dump)
+func CheckedUpload(baseUrl string, payload PLoad, dump bool) (string, error) {
+	key, err := Upload(baseUrl, payload, dump)
 	if err != nil {
-		return err
+		return string(key), err
 	}
 	if key != nil {
-		return Get(key, payload)
+		return Get(baseUrl, string(key), payload)
 	}
-	return nil
+	return "", nil
 }
 
-func Upload(payload PLoad, dump bool) ([]byte, error) {
+func Upload(baseUrl string, payload PLoad, dump bool) ([]byte, error) {
 	// log.Printf("body:\n%v", reqbuf)
 
-	req, err := http.NewRequest("POST", url+"/up", bytes.NewReader(payload.encoded))
+	req, err := http.NewRequest("POST", baseUrl+"/up", bytes.NewReader(payload.encoded))
 	if err != nil {
 		return nil, err
 	}
@@ -251,18 +283,23 @@ func Upload(payload PLoad, dump bool) ([]byte, error) {
 	if n != 32 || bytes.Equal(bytes.ToUpper(key[:3]), []byte{'E', 'R', 'R'}) {
 		return nil, fmt.Errorf("bad response: %s", key)
 	}
+	log.Printf("%s", key)
 	return key, nil
 }
 
-func Get(key []byte, payload PLoad) error {
-	resp, err := http.Get(url + "/" + aostor.BytesToStr(key))
-	if err != nil {
-		return fmt.Errorf("error Getting %s: %s",
-			url+"/"+aostor.BytesToStr(key), err)
+func Get(baseUrl string, key string, payload PLoad) (url string, err error) {
+	url = baseUrl + "/" + key
+	resp, e := http.Get(url)
+	if resp != nil && resp.Body != nil {
+		defer resp.Body.Close()
 	}
-	defer resp.Body.Close()
+	if e != nil {
+		err = fmt.Errorf("error with http.Get(%s): %s", url, e)
+		return
+	}
 	if !(200 <= resp.StatusCode && resp.StatusCode <= 299) {
-		return fmt.Errorf("%s", resp.Status)
+		err = fmt.Errorf("STATUS=%s", resp.Status)
+		return
 	}
 	c := aostor.NewCounter()
 	buf, err := ioutil.ReadAll(io.TeeReader(resp.Body, c))
@@ -271,15 +308,18 @@ func Get(key []byte, payload PLoad) error {
 		if e != nil {
 			log.Printf("cannot dump response %v: %s", resp, e)
 		}
-		return fmt.Errorf("error reading from %s: %s\n<<<<<<\nresponse:\n%v",
+		err = fmt.Errorf("error reading from %s: %s\n<<<<<<\nresponse:\n%v",
 			resp.Body, err, buf)
+		return
 	}
 	if c.Num != payload.length {
-		return fmt.Errorf("length mismatch: read %d bytes (%d content-length=%d) for %s, required %d\n%s",
+		err = fmt.Errorf("length mismatch: read %d bytes (%d content-length=%d) for %s, required %d\n%s",
 			c.Num, len(buf), resp.ContentLength, key, payload.length, resp)
+		return
 	}
 	if payload.data != nil && uint64(len(payload.data)) == payload.length && !bytes.Equal(payload.data, buf) {
-		return fmt.Errorf("data mismatch: read %v, asserted %v", buf, payload.data)
+		err = fmt.Errorf("data mismatch: read %v, asserted %v", buf, payload.data)
+		return
 	}
-	return nil
+	return
 }

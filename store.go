@@ -20,8 +20,8 @@
 package aostor
 
 import (
-	// "bytes"
 	"code.google.com/p/go-uuid/uuid"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	//"bitbucket.org/taruti/mimemagic"
@@ -115,7 +115,7 @@ func NewUUID() (UUID, error) {
 	// 	return "", err
 	// }
 	// return fmt.Sprintf("%x", *k), nil
-	b := *new(UUID)
+	var b UUID
 	u := UUIDMaker()
 	for i := 0; i < 16; i++ {
 		b[i] = u[i]
@@ -123,8 +123,24 @@ func NewUUID() (UUID, error) {
 	return b, nil
 }
 
-func (b *UUID) String() string {
-	return fmt.Sprintf("%032x", *b)
+func NewUUIDFromString(text string) (b UUID, err error) {
+	u, e := hex.DecodeString(text)
+	if e != nil {
+		err = e
+		return
+	}
+	for i := 0; i < 16 && i < len(u); i++ {
+		b[i] = u[i]
+	}
+	return
+}
+
+func (b UUID) String() string {
+	// return fmt.Sprintf("%032x", b)
+	return hex.EncodeToString(b[0:])
+}
+func (b UUID) Bytes() []byte {
+	return b[0:]
 }
 
 // A writer which counts bytes written into it

@@ -54,6 +54,9 @@ func CompactIndices(realm string, level uint, onChange func()) error {
 			break
 		}
 	}
+	if onChange != nil {
+		onChange()
+	}
 	return nil
 }
 

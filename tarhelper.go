@@ -96,7 +96,9 @@ func ReadItem(tarfn string, pos int64) (ret io.Reader, err error) {
 		logger.Trace("[%s] length=%d", hdr.Name, hdr.Size)
 		ret = tr
 	}
-	//logger.Printf("ret=%s err=%s", ret, err)
+	if err != nil {
+		logger.Error("ret=%s err=%s", ret, err)
+	}
 	return ret, err
 }
 

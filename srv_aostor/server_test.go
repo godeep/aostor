@@ -36,8 +36,8 @@ import (
 	"testing"
 	"time"
 	// "testing/iotest"
-	"unosoft.hu/aostor"
 	"testhlp"
+	"unosoft.hu/aostor"
 )
 
 var (
@@ -47,6 +47,7 @@ var (
 )
 
 func TestParallelStore(t *testing.T) {
+	defer aostor.FlushLog()
 	srv, err := testhlp.StartServer()
 	if err != nil {
 		t.Fatalf("error starting server: %s", err)
@@ -55,7 +56,7 @@ func TestParallelStore(t *testing.T) {
 		defer srv.Close()
 	}
 	t.Logf("parallel=%v (%d)", parallel, *parallel)
-	err = testhlp.OneRound(*parallel, *N)
+	err = testhlp.OneRound(*parallel, *N, true)
 	if err != nil {
 		t.Errorf("error while uploading: %s", err)
 	}
