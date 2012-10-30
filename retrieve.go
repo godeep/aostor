@@ -189,6 +189,8 @@ func fillTarCache(realm string, tardir string, force bool) {
 func findAtLevelHigher(realm string, uuid UUID, tardir string) (info Info, reader io.Reader, err error) {
 	var tarfn_b string
 	logger.Debug("findAtLevelHigher(%s, %s) files=%+v", realm, uuid, cdbFiles[realm][1])
+	cacheLock.Lock()
+	defer cacheLock.Unlock()
 	logger.Trace("%+v", cdbFiles)
 	for _, cdb_fn := range cdbFiles[realm][1] {
 		db, err := cdb.Open(cdb_fn)
@@ -300,6 +302,8 @@ func fileExists(fn string) bool {
 
 func findAtLevelZero(realm string, uuid UUID) (info Info, reader io.Reader, err error) {
 	logger.Debug("L00 files at %s: %s", realm, cdbFiles[realm][0])
+	cacheLock.Lock()
+	defer cacheLock.Unlock()
 	for _, cdb_fn := range cdbFiles[realm][0] {
 		info, reader, err = GetFromCdb(uuid, cdb_fn)
 		switch err {
