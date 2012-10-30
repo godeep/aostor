@@ -17,9 +17,12 @@
 package main
 
 import (
+	"../testhlp"
 	"flag"
-"unosoft.hu/aostor"
-"unosoft.hu/aostor/testhlp"
+	"log"
+	"net/http"
+	"time"
+	"unosoft.hu/aostor"
 )
 
 // if called from command-line, start the server and push it under load!
@@ -27,7 +30,7 @@ func main() {
 	defer aostor.FlushLog()
 	hostport := flag.String("http", "", "already running server's address0")
 	flag.Parse()
-	srv, err := StartServer(*hostport)
+	srv, err := testhlp.StartServer(*hostport)
 	if err != nil {
 		log.Panicf("error starting server: %s", err)
 	}
@@ -58,7 +61,7 @@ func main() {
 	go func(ch <-chan time.Time, hostport string) {
 		for now := range ch {
 			log.Printf("starting shovel at %s...", now)
-			if err = Shovel(srv.Pid, hostport); err != nil {
+			if err = testhlp.Shovel(srv.Pid, hostport); err != nil {
 				log.Printf("error with shovel: %s", err)
 				break
 			}
@@ -66,10 +69,9 @@ func main() {
 	}(ticker, *hostport)
 	for i := 4; i < 100; i++ {
 		log.Printf("starting round %d...", i)
-		if err = OneRound(srv.Url, i, 100, urlch, i == 1); err != nil {
+		if err = testhlp.OneRound(srv.Url, i, 100, urlch, i == 1); err != nil {
 			log.Printf("error with round %d: %s", i, err)
 			break
 		}
 	}
 }
-

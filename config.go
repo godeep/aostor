@@ -30,6 +30,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 const (
@@ -64,6 +65,7 @@ config = seelog.xml
 var (
 	ConfigFile = DefaultConfigFile
 	configs    = make(map[string]Config, 2) // configs cache
+	configLock = sync.Mutex{}
 )
 
 // configuration variables, parsed
@@ -81,6 +83,9 @@ type Config struct {
 // reads config file (or ConfigFile if empty), replaces every #(realm)s with the
 // given realm, if given
 func ReadConf(fn string, realm string) (Config, error) {
+	configLock.Lock()
+	defer configLock.Unlock()
+
 	k_def := fn + "#"
 	k := k_def + realm
 	c, ok := configs[k]

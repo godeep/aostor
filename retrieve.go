@@ -39,8 +39,8 @@ var (
 )
 
 var (
-	cdbFiles  = map[string][][]string{}
-	tarFiles  = map[string](map[string]string){}
+	cdbFiles  = make(map[string][][]string, 100)
+	tarFiles  = make(map[string](map[string]string), 100)
 	cacheLock = sync.RWMutex{}
 )
 
@@ -74,6 +74,7 @@ func Get(realm string, uuid UUID) (info Info, reader io.Reader, err error) {
 		if err = fillCdbCache(realm, conf.IndexDir, false); err != nil {
 			return
 		}
+		logger.Debug("findAtLevelZero(%s, %s)", realm, uuid)
 		if info, reader, err = findAtLevelZero(realm, uuid); err == nil {
 			//logger.Printf("found at level zero: %s", info)
 			return
@@ -82,6 +83,7 @@ func Get(realm string, uuid UUID) (info Info, reader io.Reader, err error) {
 			if err = fillTarCache(realm, conf.TarDir, false); err != nil {
 				return
 			}
+			logger.Debug("findAtLevelHigher(%s, %s)", realm, uuid)
 			if info, reader, err = findAtLevelHigher(realm, uuid); err == nil {
 				return
 			}
@@ -90,6 +92,8 @@ func Get(realm string, uuid UUID) (info Info, reader io.Reader, err error) {
 			}
 		}
 		// force cache reload
+		logger.Warn("force cache reload")
+		return
 		if err = FillCaches(true); err != nil {
 			return
 		}
@@ -106,12 +110,18 @@ func FillCaches(force bool) error {
 		return err
 	}
 	for _, realm := range config.Realms {
+		logger.Debug("BEGIN ReadConf")
 		conf, err := ReadConf("", realm)
+		logger.Debug("END ReadConf")
 		if err != nil {
 			return err
 		}
-		fillCdbCache(realm, conf.IndexDir, force)
-		fillTarCache(realm, conf.TarDir, force)
+		if err = fillCdbCache(realm, conf.IndexDir, force); err != nil {
+			return err
+		}
+		if err = fillTarCache(realm, conf.TarDir, force); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -120,15 +130,19 @@ func FillCaches(force bool) error {
 func fillCdbCache(realm string, indexdir string, force bool) error {
 	cacheLock.Lock()
 	defer cacheLock.Unlock()
-	if !force {
+
+	if !force && cdbFiles != nil && len(cdbFiles) > 0 {
 		cf, ok := cdbFiles[realm]
-		if ok && (len(cf[0]) > 0 || len(cf[1]) > 0) {
+		if ok && cf != nil && len(cf) > 0 {
 			return nil
 		}
 	}
 
-	var cf *[][]string
-	*cf = make([][]string, 1, 10)
+	cf_ := make([][]string, 1, 10)
+	cf := &cf_
+	if cf == nil {
+		panic("nil A")
+	}
 	err := walkCdbFiles(realm, indexdir, func(level int, fn string) error {
 		if len(*cf) <= level {
 			*cf = append(*cf, make([]string, 0, 10))
@@ -140,6 +154,7 @@ func fillCdbCache(realm string, indexdir string, force bool) error {
 		logger.Error("Error in fillCdbCache: %s", err)
 		return err
 	}
+	logger.Info("*cf=%s", *cf)
 	cdbFiles[realm] = *cf
 	return nil
 }
@@ -172,6 +187,9 @@ func walkCdbFiles(realm, indexdir string, todo func(level int, fn string) error)
 		}
 		for _, fn := range files {
 			if err = todo(level, fn); err != nil {
+				if err == StopIteration {
+					return nil
+				}
 				return err
 			}
 		}
@@ -182,9 +200,9 @@ func walkCdbFiles(realm, indexdir string, todo func(level int, fn string) error)
 func fillTarCache(realm string, tardir string, force bool) error {
 	cacheLock.Lock()
 	defer cacheLock.Unlock()
-	if !force {
+	if !force && tarFiles != nil && len(tarFiles) > 0 {
 		tf, ok := tarFiles[realm]
-		if ok && len(tf) > 0 {
+		if ok && tf != nil && len(tf) > 0 {
 			return nil
 		}
 	}
@@ -198,8 +216,9 @@ func fillTarCache(realm string, tardir string, force bool) error {
 	if err != nil {
 		logger.Error("error with fillTarCache: %s", err)
 	}
-	// logger.Info("fillTarCache(%s): %d", realm, len(tarFiles[realm]))
-	return err
+	logger.Info("fillTarCache(%s): %d", realm, tf)
+	tarFiles[realm] = tf
+	return nil
 }
 
 func walkTarFiles(realm, tardir string, todo func(uuid, fn string) error) error {
@@ -227,7 +246,7 @@ func walkTarFiles(realm, tardir string, todo func(uuid, fn string) error) error 
 			}
 			return nil
 		})
-	if err != nil && err == StopIteration {
+	if err == StopIteration {
 		err = nil
 	}
 	return err
@@ -236,8 +255,8 @@ func walkTarFiles(realm, tardir string, todo func(uuid, fn string) error) error 
 func findAtLevelHigher(realm string, uuid UUID) (info Info, reader io.Reader, err error) {
 	var tarfn_b string
 	logger.Debug("findAtLevelHigher(%s, %s) files=%+v", realm, uuid, cdbFiles[realm][1])
-	// cacheLock.RLock()
-	// defer cacheLock.RUnlock()
+	cacheLock.RLock()
+	defer cacheLock.RUnlock()
 	// logger.Trace("%+v", cdbFiles)
 	for _, cdb_fn := range cdbFiles[realm][1] {
 		db, err := cdb.Open(cdb_fn)

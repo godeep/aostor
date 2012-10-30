@@ -63,7 +63,8 @@ func main() {
 
 	go recvChangeSig(sigchan)
 
-	runtime.GOMAXPROCS(runtime.NumCPU())
+	// runtime.GOMAXPROCS(runtime.NumCPU())
+	runtime.GOMAXPROCS(1)
 
 	logger.Printf("starting server on %s", *s)
 	logger.Fatal(s.ListenAndServe())
@@ -140,6 +141,12 @@ func baseHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func upHandler(w http.ResponseWriter, r *http.Request) {
+	defer func() {
+		if err := recover(); err != nil {
+			log.Fatalf("work failed:", err)
+			panic(fmt.Sprintf("work failed: %s", err))
+		}
+	}()
 	logger.Printf("got %s", r)
 	tmp := strings.SplitN(r.URL.Path, "/", 3)[1:]
 	realm, path := tmp[0], tmp[1]
