@@ -58,31 +58,33 @@ func Get(realm string, uuid UUID) (info Info, reader io.Reader, err error) {
 		logger.Error("cannot read config: %s", err)
 		return
 	}
-	// L00
-	info, reader, err = findAtStaging(uuid, conf.StagingDir)
-	if err == nil {
-		//logger.Printf("found at staging: %s", info)
-		return
-	} else if !os.IsNotExist(err) {
-		logger.Error("error searching at staging: %s", err)
-		return
-	}
+	for {
+		// L00
+		info, reader, err = findAtStaging(uuid, conf.StagingDir)
+		if err == nil {
+			//logger.Printf("found at staging: %s", info)
+			return
+		} else if !os.IsNotExist(err) {
+			logger.Error("error searching at staging: %s", err)
+		}
 
-	fillCdbCache(realm, conf.IndexDir, false)
-	info, reader, err = findAtLevelZero(realm, uuid)
-	if err == nil {
-		//logger.Printf("found at level zero: %s", info)
-		return
-	} else if err != NotFound {
-		FillCaches(true)
+		fillCdbCache(realm, conf.IndexDir, false)
 		info, reader, err = findAtLevelZero(realm, uuid)
-		if err == nil || err != NotFound {
+		if err == nil {
 			//logger.Printf("found at level zero: %s", info)
 			return
+		} else if err != NotFound && os.IsNotExist(err) {
+			FillCaches(true)
+			continue
 		}
+		fillTarCache(realm, conf.TarDir, false)
+		info, reader, err = findAtLevelHigher(realm, uuid, conf.IndexDir)
+		if err == nil {
+			return
+		}
+		FillCaches(true)
+		logger.Warn("LOOP AGAIN as searching for %s@%s", uuid, realm)
 	}
-	fillTarCache(realm, conf.TarDir, false)
-	info, reader, err = findAtLevelHigher(realm, uuid, conf.IndexDir)
 	return
 }
 
