@@ -42,7 +42,7 @@ var MaxRequestMemory = 20 * int64(1<<20)
 func main() {
 	defer aostor.FlushLog()
 	configfile := flag.String("c", aostor.ConfigFile, "config file")
-	hostport := flag.String("hostport", "",
+	hostport := flag.String("http", "",
 		"host:port, default="+aostor.DefaultHostport)
 	flag.Parse()
 	conf, err := aostor.ReadConf(*configfile, "")

@@ -15,12 +15,11 @@
 // along with Aostor.  If not, see <http://www.gnu.org/licenses/>.
 
 // Append-Only Storage HTTP server
-package main
+package testhlp
 
 import (
 	"bufio"
 	"bytes"
-	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -49,57 +48,6 @@ type Server struct {
 	Url   string //url of server
 	Pid   int    //pid of server process
 	Close func() // closer
-}
-
-// if called from command-line, start the server and push it under load!
-func main() {
-	defer aostor.FlushLog()
-	hostport := flag.String("hostport", "", "already running server's address0")
-	flag.Parse()
-	srv, err := StartServer(*hostport)
-	if err != nil {
-		log.Panicf("error starting server: %s", err)
-	}
-	defer func() {
-		if srv.Close != nil {
-			srv.Close()
-		}
-	}()
-
-	urlch := make(chan string, 1000)
-	defer close(urlch)
-	go func(urlch <-chan string) {
-		for url := range urlch {
-			resp, e := http.Get(url)
-			if resp != nil && resp.Body != nil {
-				resp.Body.Close()
-			}
-			if e != nil {
-				log.Panicf("error with http.Get(%s): %s", url, e)
-			}
-			if !(200 <= resp.StatusCode && resp.StatusCode <= 299) {
-				log.Panicf("STATUS=%s", resp.Status)
-			}
-		}
-	}(urlch)
-	ticker := time.Tick(5 * time.Second)
-	// defer close(ticker)
-	go func(ch <-chan time.Time, hostport string) {
-		for now := range ch {
-			log.Printf("starting shovel at %s...", now)
-			if err = Shovel(srv.Pid, hostport); err != nil {
-				log.Printf("error with shovel: %s", err)
-				break
-			}
-		}
-	}(ticker, *hostport)
-	for i := 4; i < 100; i++ {
-		log.Printf("starting round %d...", i)
-		if err = OneRound(srv.Url, i, 100, urlch, i == 1); err != nil {
-			log.Printf("error with round %d: %s", i, err)
-			break
-		}
-	}
 }
 
 func OneRound(baseUrl string, parallel, N int, urlch chan<- string, dump bool) (err error) {
@@ -185,7 +133,7 @@ func Shovel(pid int, hostport string) error {
 		args = append(args, fmt.Sprintf("-p=%d", pid))
 	}
 	if hostport != "" {
-		args = append(args, "-hostport="+hostport)
+		args = append(args, "-http="+hostport)
 	}
 	shovelLock.Lock()
 	defer shovelLock.Unlock()

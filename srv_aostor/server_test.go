@@ -18,37 +18,22 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
+	"./testhlp"
 	"flag"
-	"fmt"
-	"io"
-	"io/ioutil"
-	"log"
-	"mime/multipart"
-	"net/http"
-	"net/http/httputil"
-	"os"
-	"os/exec"
-	"runtime"
-	// "strings"
-	"sync"
 	"testing"
-	"time"
-	// "testing/iotest"
-	"testhlp"
 	"unosoft.hu/aostor"
 )
 
 var (
 	parallel = flag.Int("P", 1, "parallel threads")
 	hostport = flag.String("http", "", "already running server address")
-	N        = flag.Int("N", 100, "request number")
+	N        = flag.Int("N", 1000, "request number")
 )
 
 func TestParallelStore(t *testing.T) {
 	defer aostor.FlushLog()
-	srv, err := testhlp.StartServer()
+	flag.Parse()
+	srv, err := testhlp.StartServer(*hostport)
 	if err != nil {
 		t.Fatalf("error starting server: %s", err)
 	}
@@ -56,8 +41,11 @@ func TestParallelStore(t *testing.T) {
 		defer srv.Close()
 	}
 	t.Logf("parallel=%v (%d)", parallel, *parallel)
-	err = testhlp.OneRound(*parallel, *N, true)
-	if err != nil {
+	urlch := make(chan string)
+	if err = testhlp.OneRound(srv.Url, *parallel, *N, urlch, true); err != nil {
 		t.Errorf("error while uploading: %s", err)
+	}
+	if err = testhlp.Shovel(srv.Pid, *hostport); err != nil {
+		t.Errorf("error with shovel: %s", err)
 	}
 }

@@ -32,7 +32,7 @@ func main() {
 	var pid int
 	var hostport string
 	flag.IntVar(&pid, "p", 0, "pid to SIGUSR1 on change")
-	flag.StringVar(&hostport, "hostport", "", "host:port")
+	flag.StringVar(&hostport, "http", "", "host:port")
 	todo_tar := flag.Bool("t", false, "shovel tar to dir")
 	todo_realm := flag.String("r", "", "compact realm")
 	flag.Parse()
