@@ -70,11 +70,7 @@ func main() {
 	defer close(urlch)
 	go func(urlch <-chan string) {
 		for url := range urlch {
-			// continue //dangerous during Shovel!
-
-			shovelLock.Lock()
 			resp, e := http.Get(url)
-			shovelLock.Unlock()
 			if resp != nil && resp.Body != nil {
 				resp.Body.Close()
 			}
@@ -86,15 +82,21 @@ func main() {
 			}
 		}
 	}(urlch)
+	ticker := time.Tick(5 * time.Second)
+	// defer close(ticker)
+	go func(ch <-chan time.Time, hostport string) {
+		for now := range ch {
+			log.Printf("starting shovel at %s...", now)
+			if err = Shovel(srv.Pid, hostport); err != nil {
+				log.Printf("error with shovel: %s", err)
+				break
+			}
+		}
+	}(ticker, *hostport)
 	for i := 4; i < 100; i++ {
 		log.Printf("starting round %d...", i)
 		if err = OneRound(srv.Url, i, 100, urlch, i == 1); err != nil {
 			log.Printf("error with round %d: %s", i, err)
-			break
-		}
-		log.Printf("starting shovel of %d...", i)
-		if err = Shovel(srv.Pid); err != nil {
-			log.Printf("error with shovel: %s", err)
 			break
 		}
 	}
@@ -177,10 +179,13 @@ func StartServer(hostport string) (srv Server, err error) {
 	return
 }
 
-func Shovel(pid int) error {
+func Shovel(pid int, hostport string) error {
 	args := []string{"-r=test"}
 	if pid > 0 {
 		args = append(args, fmt.Sprintf("-p=%d", pid))
+	}
+	if hostport != "" {
+		args = append(args, "-hostport="+hostport)
 	}
 	shovelLock.Lock()
 	defer shovelLock.Unlock()

@@ -38,7 +38,7 @@ var NotFound = errors.New("Not Found")
 var (
 	cdbFiles  = map[string][2][]string{}
 	tarFiles  = map[string](map[string]string){}
-	cacheLock = sync.Mutex{}
+	cacheLock = sync.RWMutex{}
 )
 
 //returns the associated info and data of a given uuid in a given realm
@@ -191,6 +191,8 @@ func fillTarCache(realm string, tardir string, force bool) {
 func findAtLevelHigher(realm string, uuid UUID, tardir string) (info Info, reader io.Reader, err error) {
 	var tarfn_b string
 	logger.Debug("findAtLevelHigher(%s, %s) files=%+v", realm, uuid, cdbFiles[realm][1])
+	cacheLock.RLock()
+	defer cacheLock.RUnlock()
 	logger.Trace("%+v", cdbFiles)
 	for _, cdb_fn := range cdbFiles[realm][1] {
 		db, err := cdb.Open(cdb_fn)
@@ -302,6 +304,8 @@ func fileExists(fn string) bool {
 
 func findAtLevelZero(realm string, uuid UUID) (info Info, reader io.Reader, err error) {
 	logger.Debug("L00 files at %s: %s", realm, cdbFiles[realm][0])
+	cacheLock.RLock()
+	defer cacheLock.RUnlock()
 	for _, cdb_fn := range cdbFiles[realm][0] {
 		info, reader, err = GetFromCdb(uuid, cdb_fn)
 		switch err {
