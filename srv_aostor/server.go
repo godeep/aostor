@@ -243,3 +243,11 @@ func upHandler(w http.ResponseWriter, r *http.Request) {
 func indexHandler(w http.ResponseWriter, r *http.Request) {
 	logger.Printf("got %s", r)
 }
+
+
+// _signal panics with tip, 
+// The first bad revision is:
+// changeset:   14713:bb4ee132b967
+// user:        Luuk van Dijk <lvd@golang.org>
+// date:        Mon Oct 29 13:55:27 2012 +0100
+// summary:     cmd/gc: inlining functions with local variables
