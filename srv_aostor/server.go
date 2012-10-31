@@ -33,7 +33,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
-	"unosoft.hu/aostor"
+	"github.com/tgulacsi/aostor"
 )
 
 var logger = log.New(os.Stderr, "server ", log.LstdFlags|log.Lshortfile)

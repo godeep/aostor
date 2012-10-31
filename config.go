@@ -82,46 +82,48 @@ type Config struct {
 
 // reads config file (or ConfigFile if empty), replaces every #(realm)s with the
 // given realm, if given
-func ReadConf(fn string, realm string) (Config, error) {
+func ReadConf(fn string, realm string) (c Config, err error) {
 	configLock.Lock()
 	defer configLock.Unlock()
 
+	var ok bool
+
 	k_def := fn + "#"
 	k := k_def + realm
-	c, ok := configs[k]
+	c, ok = configs[k]
 	if ok {
-		return c, nil
+		return
 	}
 	if LogIsDisabled() {
 		UseLoggerFromConfigFile(DefaultLogConfFile)
 	}
-	c, err := readConf(fn, realm, configs[k_def])
+	c, err = readConf(fn, realm, configs[k_def])
 	if err != nil {
 		logger.Error("cannot open config: %s", err)
-		return Config{}, err
+		return
 	}
-	if _, ok := configs[k_def]; !ok {
+	if _, ok = configs[k_def]; !ok {
 		configs[k_def] = c
 	}
 	configs[k] = c
-	return c, nil
+	return
 }
 
-func readConf(fn string, realm string, common Config) (Config, error) {
-	var c Config
+func readConf(fn string, realm string, common Config) (c Config, err error) {
 	if fn == "" {
 		fn = ConfigFile
 	}
-	conf, err := config.ReadDefault(fn)
-	if err != nil {
-		return c, err
+	conf, e := config.ReadDefault(fn)
+	if e != nil {
+		err = e
+		return
 	}
 	if common.LogConf != "" {
 		c.LogConf = common.LogConf
 	} else {
-		logconf, err := conf.String("log", "config")
-		if err != nil {
-			fmt.Printf("cannot get log configuration: %s", err)
+		logconf, e2 := conf.String("log", "config")
+		if e2 != nil {
+			fmt.Printf("cannot get log configuration: %s", e2)
 			c.LogConf = DefaultLogConfFile
 		} else {
 			UseLoggerFromConfigFile(logconf)
@@ -131,7 +133,7 @@ func readConf(fn string, realm string, common Config) (Config, error) {
 
 	c.StagingDir, err = getDir(conf, "dirs", "staging", realm)
 	if err != nil {
-		return c, err
+		return
 	}
 
 	c.IndexDir, err = getDir(conf, "dirs", "index", realm)
@@ -152,10 +154,11 @@ func readConf(fn string, realm string, common Config) (Config, error) {
 		return c, err
 	}
 
+	var i int
 	if common.IndexThreshold > 0 {
 		c.IndexThreshold = common.IndexThreshold
 	} else {
-		i, err := conf.Int("threshold", "index")
+		i, err = conf.Int("threshold", "index")
 		if err != nil {
 			logger.Warn("cannot get threshold/index: %s", err)
 			c.IndexThreshold = DefaultIndexThreshold
@@ -167,7 +170,7 @@ func readConf(fn string, realm string, common Config) (Config, error) {
 	if common.TarThreshold > 0 {
 		c.TarThreshold = common.TarThreshold
 	} else {
-		i, err := conf.Int("threshold", "tar")
+		i, err = conf.Int("threshold", "tar")
 		if err != nil {
 			logger.Warn("cannot get threshold/tar: %s", err)
 			c.TarThreshold = DefaultTarThreshold
@@ -179,7 +182,8 @@ func readConf(fn string, realm string, common Config) (Config, error) {
 	if common.Hostport != "" {
 		c.Hostport = common.Hostport
 	} else {
-		hp, err := conf.String("http", "hostport")
+		var hp string
+		hp, err = conf.String("http", "hostport")
 		if err != nil {
 			logger.Warn("cannot get hostport: %s", err)
 			c.Hostport = DefaultHostport
@@ -191,7 +195,8 @@ func readConf(fn string, realm string, common Config) (Config, error) {
 	if len(common.Realms) > 0 {
 		c.Realms = common.Realms
 	} else {
-		realms, err := conf.String("http", "realms")
+		var realms string
+		realms, err = conf.String("http", "realms")
 		if err != nil {
 			logger.Warn("cannot get realms: %s", err)
 		} else {
@@ -239,7 +244,7 @@ func getDir(conf *config.Config, section string, option string, realm string) (s
 
 func fileMode(fn string) os.FileMode {
 	if fh, err := os.Open(fn); err == nil {
-		if fi, err := fh.Stat(); err == nil {
+		if fi, e := fh.Stat(); e == nil {
 			return fi.Mode()
 		}
 	}
@@ -255,8 +260,8 @@ func fifoExists(pipefn string) bool {
 	bn := filepath.Base(pipefn)
 	var mode os.FileMode
 	for {
-		files, err := dh.Readdir(1024)
-		if err == io.EOF {
+		files, e := dh.Readdir(1024)
+		if e == io.EOF {
 			break
 		}
 		for _, fi := range files {
