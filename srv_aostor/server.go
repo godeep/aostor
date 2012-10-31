@@ -63,8 +63,8 @@ func main() {
 
 	go recvChangeSig(sigchan)
 
-	// runtime.GOMAXPROCS(runtime.NumCPU())
-	runtime.GOMAXPROCS(1)
+	runtime.GOMAXPROCS(runtime.NumCPU())
+	// runtime.GOMAXPROCS(1)
 
 	logger.Printf("starting server on %s", *s)
 	logger.Fatal(s.ListenAndServe())

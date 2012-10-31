@@ -27,6 +27,7 @@ import (
 	"log"
 	"compress/gzip"
 	"compress/flate"
+	"sync"
 	)
 
 var logger = log.New(bufio.NewWriter(os.Stderr), "compressor ", log.LstdFlags|log.Lshortfile)
@@ -73,7 +74,7 @@ func CompressCopy(w io.Writer, r io.Reader, compressMethod string) (int64, error
 		if compressMethod == "bz2" {
 			compressMethod = "bzip2"
 		}
-		if _, ok := CompressorRegistry[compressMethod]; !ok {
+		if _, ok := compressorRegistry[compressMethod]; !ok {
 			errors.New("unknown compress method " + compressMethod)
 		}
 		return 0, ExternalCompressCopy(w, r, compressMethod)
@@ -82,19 +83,29 @@ func CompressCopy(w io.Writer, r io.Reader, compressMethod string) (int64, error
 }
 
 // compressmethod -> compressor function map
-var CompressorRegistry = make(map[string]string, 3)
+var (
+	compressorRegistry = make(map[string]string, 3)
+	registryLock = sync.Mutex{}
+	)
+
+// registers an executable for the given name (file extension)
+func Register(name, path string) {
+	registryLock.Lock()
+	defer registryLock.Unlock()
+	compressorRegistry[name] = path
+}
 
 func init() {
 	for _, nm := range([]string{"bzip2", "gzip", "xz"}) {
 		if path, err := exec.LookPath(nm); err == nil {
-			CompressorRegistry[nm] = path
+			Register(nm, path)
 		}
 	}
 }
 
 // uses external program for compression
 func ExternalCompressCopy(dst io.Writer, src io.Reader, compressMethod string) error {
-	prg, ok := CompressorRegistry[compressMethod]
+	prg, ok := compressorRegistry[compressMethod]
 	if !ok {
 		return errors.New("unknown compress method " + compressMethod)
 	}
@@ -114,7 +125,7 @@ func ExternalCompressCopy(dst io.Writer, src io.Reader, compressMethod string) e
 
 // uses external program for decompression
 func ExternalDecompressCopy(dst io.Writer, src io.Reader, compressMethod string) error {
-	prg, ok := CompressorRegistry[compressMethod]
+	prg, ok := compressorRegistry[compressMethod]
 	if !ok {
 		return errors.New("unknown compress method " + compressMethod)
 	}

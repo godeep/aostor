@@ -30,6 +30,7 @@ import (
 	"os"
 	"os/user"
 	"strings"
+	"sync"
 	"time"
 	"unosoft.hu/aostor/compressor"
 )
@@ -47,7 +48,10 @@ const (
 	BS       = 512 // tar blocksize
 )
 
-var tarEndCache = map[string]uint64{}
+var (
+	tarEndCache     = map[string]uint64{}
+	tarEndCacheLock = sync.Mutex{}
+)
 
 type SymlinkError struct {
 	Linkname string
@@ -211,12 +215,14 @@ func OpenForAppend(tarfn string) (
 	//logger.Printf("%s.Size=%d", tarfn, fi.Size())
 	var p int64
 	if fi.Size() >= 2*BS {
+		tarEndCacheLock.Lock()
 		if pos, err = FindTarEnd(fh, tarEndCache[tarfn]); err == nil {
 			logger.Debug("end of %s: %d", tarfn, pos)
 			tarEndCache[tarfn] = pos
 		} else {
 			logger.Error("error %s: %s", tarfn, err)
 		}
+		tarEndCacheLock.Unlock()
 	} else {
 		if p, err = fh.Seek(0, 0); err != nil {
 			logger.Error("error: %s: %s", tarfn, err)
