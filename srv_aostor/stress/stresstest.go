@@ -21,6 +21,7 @@ import (
 	"flag"
 	"log"
 	"net/http"
+	"os"
 	"time"
 	"unosoft.hu/aostor"
 )
@@ -49,10 +50,12 @@ func main() {
 				resp.Body.Close()
 			}
 			if e != nil {
-				log.Panicf("error with http.Get(%s): %s", url, e)
+				log.Printf("error with http.Get(%s): %s", url, e)
+				os.Exit(1)
 			}
 			if !(200 <= resp.StatusCode && resp.StatusCode <= 299) {
-				log.Panicf("STATUS=%s", resp.Status)
+				log.Printf("STATUS=%s for %s", resp.Status, url)
+				os.Exit(2)
 			}
 		}
 	}(urlch)

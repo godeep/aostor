@@ -244,7 +244,6 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 	logger.Printf("got %s", r)
 }
 
-
 // _signal panics with tip, 
 // The first bad revision is:
 // changeset:   14713:bb4ee132b967

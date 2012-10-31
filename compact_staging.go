@@ -156,6 +156,15 @@ type fElt struct {
 }
 type listDirFunc func(fElt) error
 
+func uuidKey(key string) []byte {
+	uuid, err := NewUUIDFromString(key)
+	if err != nil {
+		logger.Error("cannot convert ", key, " to uuid: ", err)
+		return []byte(key)
+	}
+	return uuid.Bytes()
+}
+
 // Copies files from the given directory into a given tar file
 func CreateTar(tarfn string, dirname string) error {
 	tw, fh, pos, err := OpenForAppend(tarfn)
@@ -211,7 +220,7 @@ func CreateTar(tarfn string, dirname string) error {
 				}
 			}
 			// c <- cdb.Element{StrToBytes(elt.info.Key), elt.info.Bytes()}
-			adder(cdb.Element{StrToBytes(elt.info.Key), elt.info.Bytes()})
+			adder(cdb.Element{uuidKey(elt.info.Key), elt.info.Bytes()})
 		}
 		return nil
 	}
@@ -236,8 +245,8 @@ func CreateTar(tarfn string, dirname string) error {
 			logger.Critical("cannot append %s", elt.dataFn)
 			os.Exit(1)
 		}
-
-		adder(cdb.Element{StrToBytes(elt.info.Key), elt.info.Bytes()})
+		// logger.Debug("adding ",keyb," to ",)
+		adder(cdb.Element{uuidKey(elt.info.Key), elt.info.Bytes()})
 	}
 
 	// iw.Close()

@@ -18,17 +18,17 @@ package compressor
 
 import (
 	"bufio"
+	"compress/flate"
+	"compress/gzip"
+	"crypto/rand"
+	"errors"
+	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
-	"fmt"
-	"errors"
-	"crypto/rand"
-	"log"
-	"compress/gzip"
-	"compress/flate"
 	"sync"
-	)
+)
 
 var logger = log.New(bufio.NewWriter(os.Stderr), "compressor ", log.LstdFlags|log.Lshortfile)
 
@@ -85,8 +85,8 @@ func CompressCopy(w io.Writer, r io.Reader, compressMethod string) (int64, error
 // compressmethod -> compressor function map
 var (
 	compressorRegistry = make(map[string]string, 3)
-	registryLock = sync.Mutex{}
-	)
+	registryLock       = sync.Mutex{}
+)
 
 // registers an executable for the given name (file extension)
 func Register(name, path string) {
@@ -96,7 +96,7 @@ func Register(name, path string) {
 }
 
 func init() {
-	for _, nm := range([]string{"bzip2", "gzip", "xz"}) {
+	for _, nm := range []string{"bzip2", "gzip", "xz"} {
 		if path, err := exec.LookPath(nm); err == nil {
 			Register(nm, path)
 		}
@@ -145,7 +145,7 @@ func ExternalDecompressCopy(dst io.Writer, src io.Reader, compressMethod string)
 
 // shortens the method name (gzip->gz, bzip2->bz2)
 func ShorterMethod(name string) string {
-	switch(name) {
+	switch name {
 	case "bzip2":
 		return "bz2"
 	case "gzip":

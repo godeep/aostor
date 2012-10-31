@@ -85,5 +85,3 @@ prg -r realm [-p pid]
 `)
 	}
 }
-
-func Buzz()

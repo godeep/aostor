@@ -31,6 +31,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 var (
@@ -67,14 +68,14 @@ func Get(realm string, uuid UUID) (info Info, reader io.Reader, err error) {
 			//logger.Printf("found at staging: %s", info)
 			return
 		} else if !os.IsNotExist(err) {
-			logger.Error("error searching at staging: %s", err)
+			logger.Error("error searching at staging: ", err)
 			return
 		}
 
 		if err = fillCdbCache(realm, conf.IndexDir, false); err != nil {
 			return
 		}
-		logger.Debug("findAtLevelZero(%s, %s)", realm, uuid)
+		logger.Debug("findAtLevelZero(", realm, ", ", uuid, ")")
 		if info, reader, err = findAtLevelZero(realm, uuid); err == nil {
 			//logger.Printf("found at level zero: %s", info)
 			return
@@ -83,21 +84,23 @@ func Get(realm string, uuid UUID) (info Info, reader io.Reader, err error) {
 			if err = fillTarCache(realm, conf.TarDir, false); err != nil {
 				return
 			}
-			logger.Debug("findAtLevelHigher(%s, %s)", realm, uuid)
+			logger.Debug("findAtLevelHigher(", realm, ", ", uuid, ")")
 			if info, reader, err = findAtLevelHigher(realm, uuid); err == nil {
 				return
 			}
+			// logger.Debug("ERR: ", err, " ? ", os.IsNotExist(err))
 			if !os.IsNotExist(err) {
 				return
 			}
 		}
 		// force cache reload
 		logger.Warn("force cache reload")
-		return
 		if err = FillCaches(true); err != nil {
+			logger.Error("error with cache reload: ", err)
 			return
 		}
-		logger.Warn("LOOP AGAIN as searching for %s@%s", uuid, realm)
+		logger.Warn("LOOP AGAIN as searching for ", uuid, "@", realm)
+		time.Sleep(time.Second)
 	}
 	return
 }
@@ -138,21 +141,20 @@ func fillCdbCache(realm string, indexdir string, force bool) error {
 		}
 	}
 
-	// cf_ := make([][]string, 1, 10)
-	// cf := &cf_
 	cf := make([][]string, 1, 10)
 	err := walkCdbFiles(realm, indexdir, func(level int, fn string) error {
-		if len(cf) <= level {
+		for i := len(cf); i <= level; i++ {
 			cf = append(cf, make([]string, 0, 10))
 		}
+		logger.Debug("adding ", fn, " to cf[", level, "]")
 		cf[level] = append(cf[level], fn)
 		return nil
 	})
+	logger.Debug("cf=", cf)
 	if err != nil {
 		logger.Error("Error in fillCdbCache: %s", err)
 		return err
 	}
-	logger.Info("cf=%s", cf)
 	cdbFiles[realm] = cf
 	return nil
 }
@@ -212,9 +214,9 @@ func fillTarCache(realm string, tardir string, force bool) error {
 		return nil
 	})
 	if err != nil {
-		logger.Error("error with fillTarCache: %s", err)
+		logger.Error("error with fillTarCache: ", err)
 	}
-	logger.Info("fillTarCache(%s): %d", realm, tf)
+	logger.Info("fillTarCache(", realm, "): ", tf)
 	tarFiles[realm] = tf
 	return nil
 }
@@ -252,9 +254,14 @@ func walkTarFiles(realm, tardir string, todo func(uuid, fn string) error) error 
 
 func findAtLevelHigher(realm string, uuid UUID) (info Info, reader io.Reader, err error) {
 	var tarfn_b string
-	logger.Debug("findAtLevelHigher(%s, %s) files=%+v", realm, uuid, cdbFiles[realm][1])
 	cacheLock.RLock()
 	defer cacheLock.RUnlock()
+	if cdbFiles[realm] == nil || len(cdbFiles[realm]) < 2 {
+		logger.Error("empty cdbFiles? ", cdbFiles[realm])
+		err = NotFound
+		return
+	}
+	logger.Debug("findAtLevelHigher(", realm, ", ", uuid, cdbFiles[realm])
 	// logger.Trace("%+v", cdbFiles)
 	for _, cdb_fn := range cdbFiles[realm][1] {
 		db, err := cdb.Open(cdb_fn)
@@ -262,14 +269,13 @@ func findAtLevelHigher(realm string, uuid UUID) (info Info, reader io.Reader, er
 			return info, nil, err
 		}
 		indx, err := db.Data(uuid.Bytes())
-		logger.Debug("findAtLevelHigher(%s, %s) @ %s ? (%s, %s)",
-			realm, uuid, cdb_fn, indx, err)
+		logger.Debug("findAtLevelHigher(", realm, ", ", uuid, ") @ ", cdb_fn, " ? (", indx, ", ", err, ")")
 		switch err {
 		case nil:
 			data, err := db.Data(indx)
 			db.Close()
 			if err != nil {
-				logger.Error("cannot get %s from %s: %s", indx, cdb_fn, err)
+				logger.Error("cannot get ", indx, " from ", cdb_fn, ": ", err)
 				return info, nil, err
 			}
 			tarfn_b = BytesToStr(data)
@@ -282,7 +288,7 @@ func findAtLevelHigher(realm string, uuid UUID) (info Info, reader io.Reader, er
 			return info, nil, err
 		}
 		db.Close()
-		logger.Debug("searching %s: %s %s", uuid, tarfn_b, err)
+		logger.Debug("searching ", uuid, ": ", tarfn_b, " ", err)
 	}
 	if err != nil {
 		if err == io.EOF {
@@ -292,15 +298,15 @@ func findAtLevelHigher(realm string, uuid UUID) (info Info, reader io.Reader, er
 	}
 	if tarfn_b != "" {
 		tarfn, ok := tarFiles[realm][tarfn_b]
-		logger.Trace("tarfn_b=%s => %s (%s)", tarfn_b, tarfn, ok)
+		logger.Trace("tarfn_b=", tarfn_b, " => ", tarfn, "(", ok, ")")
 		if !ok {
-			logger.Error("cannot find tarfile for %s!", tarfn)
+			logger.Error("cannot find tarfile for ", tarfn)
 			err = NotFound
 			return
 		}
 		info, reader, err = GetFromCdb(uuid, tarfn+".cdb")
-		logger.Debug("found %s/%s in %s(%s): %s",
-			realm, uuid, tarfn, tarfn_b, info)
+		logger.Debug("found ", realm, "/", uuid, " in ",
+			tarfn, "(", tarfn_b, "): ", info)
 	} else {
 		err = NotFound
 	}
@@ -311,31 +317,31 @@ func GetFromCdb(uuid UUID, cdb_fn string) (info Info, reader io.Reader, err erro
 	db, err := cdb.Open(cdb_fn)
 	defer db.Close()
 	if err != nil {
-		logger.Error("cannot open %s: %s", cdb_fn, err)
+		logger.Error("cannot open ", cdb_fn, ": ", err)
 		return
 	}
 	data, err := db.Data(uuid.Bytes())
 	if err != nil {
 		if err == io.EOF || err == NotFound {
-			logger.Info("cannot find %s in %s", uuid, cdb_fn)
+			logger.Info("cannot find ", uuid, " in ", cdb_fn)
 			err = NotFound
 		} else {
-			logger.Error("cannot find %s in %s: %s", uuid, cdb_fn, err)
+			logger.Error("cannot find ", uuid, " in ", cdb_fn, ": ", err)
 		}
 		return
 	}
 	if len(data) == 0 {
-		logger.Warn("got zero length data from %s for %s", cdb_fn, uuid)
+		logger.Warn("got zero length data from ", cdb_fn, " for ", uuid)
 		err = NotFound
 		return
 	}
 	info, err = ReadInfo(bytes.NewReader(data))
 	if err != nil {
-		logger.Error("cannot read info from %s: %s", data, err)
+		logger.Error("cannot read info from ", data, ": ", err)
 		return
 	}
 	if info.Dpos == 0 {
-		logger.Warn("got zero Dpos from %so for %s", cdb_fn, uuid)
+		logger.Warn("got zero Dpos from ", cdb_fn, " for ", uuid)
 		err = NotFound
 		return
 	}
@@ -344,11 +350,11 @@ func GetFromCdb(uuid UUID, cdb_fn string) (info Info, reader io.Reader, err erro
 	tarfn := ocdb[:len(ocdb)-4]
 	reader, err = ReadItem(tarfn, int64(info.Dpos))
 	if err != nil {
-		logger.Error("GetFromCdb(%s, %s) -> ReadItem(%s, %d) error: %s",
-			uuid, cdb_fn, tarfn, info.Dpos)
+		logger.Error("GetFromCdb(", uuid, ", ", cdb_fn,
+			") -> ReadItem(", tarfn, ", ", info.Dpos, ") error: ", err)
 	} else {
-		logger.Debug("GetFromCdb found %s in %s: tarfn=%s, info=%s",
-			uuid, cdb_fn, tarfn, info)
+		logger.Debug("GetFromCdb found ", uuid, " in ", cdb_fn, ": tarfn=",
+			tarfn, ", info=", info)
 	}
 	return
 }
@@ -365,24 +371,29 @@ func fileExists(fn string) bool {
 }
 
 func findAtLevelZero(realm string, uuid UUID) (info Info, reader io.Reader, err error) {
-	logger.Debug("L00 files at %s: %s", realm, cdbFiles[realm][0])
 	cacheLock.RLock()
 	defer cacheLock.RUnlock()
+	if cdbFiles[realm] == nil || len(cdbFiles[realm]) == 0 || len(cdbFiles[realm][0]) == 0 {
+		logger.Error("emtpy level zero? ", cdbFiles[realm])
+		err = NotFound
+		return
+	}
+	logger.Debug("L00 files at ", realm, ": ", cdbFiles[realm][0])
 	for _, cdb_fn := range cdbFiles[realm][0] {
 		info, reader, err = GetFromCdb(uuid, cdb_fn)
 		switch err {
 		case nil:
-			logger.Debug("L00 found %s in %s: %s", uuid, cdb_fn, info)
+			logger.Debug("L00 found ", uuid, " in ", cdb_fn, ": ", info)
 			return
 		case io.EOF:
 			continue
 		default:
-			logger.Error("L00 error in GetFromCdb(%s, %s): %s", uuid, cdb_fn, err)
+			logger.Error("L00 error in GetFromCdb(", uuid, ", ", cdb_fn, "): ", err)
 			return info, nil, err
 		}
 	}
 
-	logger.Debug("findAtLevelZero(%s, %s): %s", realm, uuid, info)
+	logger.Debug("findAtLevelZero(", realm, ", ", uuid, "): ", info)
 	return info, nil, NotFound
 }
 
@@ -390,16 +401,16 @@ func findAtStaging(uuid UUID, path string) (info Info, reader io.Reader, err err
 	ifh, err := os.Open(path + "/" + uuid.String() + SuffInfo)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			logger.Error("findAtStaging(%s) other error: %s", uuid, err)
+			logger.Error("findAtStaging(", uuid, ") other error: ", err)
 			return
 		}
 		return
 	}
-	logger.Debug("L-1 found %s at %s as %s", uuid, path, ifh)
+	logger.Debug("L-1 found ", uuid, " at ", path, " as ", ifh)
 	info, err = ReadInfo(ifh)
 	ifh.Close()
 	if err != nil {
-		logger.Error("cannot read info file %s: %s", ifh, err)
+		logger.Error("cannot read info file ", ifh, ": ", err)
 		return
 	}
 	// var suffixes = []string{SuffData + "bz2", SuffData + "gz", SuffLink, SuffData}
@@ -411,7 +422,7 @@ func findAtStaging(uuid UUID, path string) (info Info, reader io.Reader, err err
 		if fileExists(fn) {
 			fh, err := os.Open(fn)
 			if err != nil {
-				logger.Error("cannot open %s: %s", fn, err)
+				logger.Error("cannot open ", fn, ": ", err)
 				return Info{}, nil, err
 			}
 			if suffix == SuffLink {
@@ -420,13 +431,13 @@ func findAtStaging(uuid UUID, path string) (info Info, reader io.Reader, err err
 				ifn := fn[:len(fn)-1] + "!"
 				ifh_o, err := os.Open(ifn)
 				if err != nil {
-					logger.Error("fintAtStaging(%s) symlink %s error: %s", uuid, ifn, err)
+					logger.Error("fintAtStaging(", uuid, ") symlink ", ifn, " error: ", err)
 					return info, nil, err
 				}
 				info_o, err := ReadInfo(ifh_o)
 				ifh_o.Close()
 				if err != nil {
-					logger.Error("cannot read symlink info %s: %s", ifh_o, err)
+					logger.Error("cannot read symlink info ", ifh_o, ": ", err)
 					return info, nil, err
 				}
 				ct = info_o.Get("Content-Type")

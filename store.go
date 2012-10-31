@@ -34,7 +34,6 @@ import (
 // var StoreCompressMethod = "bzip2"
 var StoreCompressMethod = "gzip"
 
-// var UUIDMaker = uuid.NewUUID
 var UUIDMaker = uuid.NewRandom
 
 // puts file (info + data) into the given realm - returns the key
@@ -110,11 +109,6 @@ type UUID [16]byte
 
 // returns a hexified 16-byte UUID1
 func NewUUID() (UUID, error) {
-	// k, err := uuid.NewV4()
-	// if err != nil {
-	// 	return "", err
-	// }
-	// return fmt.Sprintf("%x", *k), nil
 	var b UUID
 	u := UUIDMaker()
 	for i := 0; i < 16; i++ {

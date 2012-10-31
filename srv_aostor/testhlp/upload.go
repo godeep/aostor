@@ -251,7 +251,7 @@ func Get(baseUrl string, key string, payload PLoad) (url string, err error) {
 		return
 	}
 	if !(200 <= resp.StatusCode && resp.StatusCode <= 299) {
-		err = fmt.Errorf("STATUS=%s", resp.Status)
+		err = fmt.Errorf("STATUS=%s (%s)", resp.Status, url)
 		return
 	}
 	c := aostor.NewCounter()
