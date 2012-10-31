@@ -138,24 +138,22 @@ func fillCdbCache(realm string, indexdir string, force bool) error {
 		}
 	}
 
-	cf_ := make([][]string, 1, 10)
-	cf := &cf_
-	if cf == nil {
-		panic("nil A")
-	}
+	// cf_ := make([][]string, 1, 10)
+	// cf := &cf_
+	cf := make([][]string, 1, 10)
 	err := walkCdbFiles(realm, indexdir, func(level int, fn string) error {
-		if len(*cf) <= level {
-			*cf = append(*cf, make([]string, 0, 10))
+		if len(cf) <= level {
+			cf = append(cf, make([]string, 0, 10))
 		}
-		(*cf)[level] = append((*cf)[level], fn)
+		cf[level] = append(cf[level], fn)
 		return nil
 	})
 	if err != nil {
 		logger.Error("Error in fillCdbCache: %s", err)
 		return err
 	}
-	logger.Info("*cf=%s", *cf)
-	cdbFiles[realm] = *cf
+	logger.Info("cf=%s", cf)
+	cdbFiles[realm] = cf
 	return nil
 }
 
