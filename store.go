@@ -28,7 +28,7 @@ import (
 	"io"
 	// "io/ioutil"
 	"os"
-	"unosoft.hu/aostor/compressor"
+	"./compressor"
 )
 
 // var StoreCompressMethod = "bzip2"

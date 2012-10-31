@@ -29,7 +29,7 @@ import (
 	//"net/http"
 	"crypto/rand"
 	"log"
-	"unosoft.hu/aostor/compressor"
+	"./compressor"
 )
 
 func TestCompress(c *testing.T) {
