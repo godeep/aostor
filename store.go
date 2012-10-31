@@ -27,8 +27,8 @@ import (
 	//"bitbucket.org/taruti/mimemagic"
 	"io"
 	// "io/ioutil"
-	"os"
 	"./compressor"
+	"os"
 )
 
 // var StoreCompressMethod = "bzip2"

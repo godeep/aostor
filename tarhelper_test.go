@@ -27,9 +27,9 @@ import (
 	"os"
 	"testing"
 	//"net/http"
+	"./compressor"
 	"crypto/rand"
 	"log"
-	"./compressor"
 )
 
 func TestCompress(c *testing.T) {

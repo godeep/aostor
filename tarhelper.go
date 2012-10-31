@@ -32,7 +32,7 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unosoft.hu/aostor/compressor"
+	"./compressor"
 )
 
 var (
