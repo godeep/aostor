@@ -26,13 +26,13 @@ import (
 	"compress/gzip"
 	"errors"
 	"fmt"
+	"github.com/tgulacsi/aostor/compressor"
 	"io"
 	"os"
 	"os/user"
 	"strings"
 	"sync"
 	"time"
-	"./compressor"
 )
 
 var (

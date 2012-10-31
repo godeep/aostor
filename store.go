@@ -27,7 +27,8 @@ import (
 	//"bitbucket.org/taruti/mimemagic"
 	"io"
 	// "io/ioutil"
-	"./compressor"
+	// "./compressor"
+	"github.com/tgulacsi/aostor/compressor"
 	"os"
 )
 

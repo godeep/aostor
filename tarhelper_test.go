@@ -27,8 +27,8 @@ import (
 	"os"
 	"testing"
 	//"net/http"
-	"./compressor"
 	"crypto/rand"
+	"github.com/tgulacsi/aostor/compressor"
 	"log"
 )
 
