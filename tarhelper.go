@@ -88,24 +88,21 @@ func ReadItem(tarfn string, pos int64) (ret io.Reader, err error) {
 	logger.Debugf("ReadItem(%s, %d) hdr=%s", tarfn, pos, hdr)
 	switch {
 	case hdr.Typeflag == tar.TypeSymlink:
-		err = &SymlinkError{hdr.Linkname}
+		return nil, &SymlinkError{hdr.Linkname}
 	case hdr.Typeflag != tar.TypeReg && hdr.Typeflag != tar.TypeRegA:
-		err = NotRegularFile
-	// TODO: cut decompression if not used
+		return nil, NotRegularFile
+	}
+	r := io.LimitReader(tr, hdr.Size)
+	switch {
 	case strings.HasSuffix(hdr.Name, SuffData+"bz2"):
 		logger.Tracef("bz[%s] length=%d", hdr.Name, hdr.Size)
-		br := bzip2.NewReader(io.LimitReader(tr, hdr.Size))
-		// c.AddClose(func() { br.Close() })
-		c.r = br
+		c.Reader = bzip2.NewReader(r)
 	case strings.HasSuffix(hdr.Name, SuffData+"gz"):
 		logger.Tracef("gz[%s] length=%d", hdr.Name, hdr.Size)
-		gr, e := gzip.NewReader(io.LimitReader(tr, hdr.Size))
-		err = e
-		// c.AddClose(func() { gr.Close() })
-		c.r = gr
-	case true:
+		c.Reader, err = gzip.NewReader(r)
+	default:
 		logger.Tracef("[%s] length=%d", hdr.Name, hdr.Size)
-		c.r = tr
+		c.Reader = r
 	}
 	ret = c
 	if err != nil {
@@ -116,18 +113,20 @@ func ReadItem(tarfn string, pos int64) (ret io.Reader, err error) {
 
 type closer struct {
 	closes [](func())
-	r      io.Reader
+	// r      io.Reader
+	io.Reader
 }
 
 func (c *closer) AddClose(fun func()) {
 	if c.closes == nil {
-		c.closes = make([](func()), 0, 2)
+		c.closes = make([](func()), 0, 1)
 	}
 	c.closes = append(c.closes, fun)
 }
-func (c closer) Read(b []byte) (int, error) {
-	return c.r.Read(b)
-}
+
+// func (c closer) Read(b []byte) (int, error) {
+// 	return c.r.Read(b)
+// }
 func (c closer) Close() {
 	for _, fun := range c.closes {
 		fun()

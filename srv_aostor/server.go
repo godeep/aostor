@@ -105,7 +105,7 @@ func baseHandler(w http.ResponseWriter, r *http.Request) {
 	logger.Printf("base got %s", r)
 	tmp := strings.SplitN(r.URL.Path, "/", 3)[1:]
 	realm, path := tmp[0], tmp[1]
-	logger.Printf("realm=%s path=%s", realm, path)
+	// logger.Printf("realm=%s path=%s", realm, path)
 
 	if r.Method == "GET" || r.Method == "HEAD" {
 		key, err := aostor.UUIDFromString(path)
@@ -130,6 +130,7 @@ func baseHandler(w http.ResponseWriter, r *http.Request) {
 				logger.Printf("written %d bytes", n)
 			}
 			if closable, ok := data.(io.Closer); ok {
+				// logger.Printf("closing %s", closable)
 				closable.Close()
 			}
 			return
@@ -153,7 +154,7 @@ func upHandler(w http.ResponseWriter, r *http.Request) {
 	logger.Printf("got %s", r)
 	tmp := strings.SplitN(r.URL.Path, "/", 3)[1:]
 	realm, path := tmp[0], tmp[1]
-	logger.Printf("realm=%s path=%s", realm, path)
+	// logger.Printf("realm=%s path=%s", realm, path)
 	if r.Method != "POST" {
 		http.Error(w, fmt.Sprintf("400 Bad Request: unknown method %s", r.Method), 400)
 		return
