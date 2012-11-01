@@ -70,7 +70,7 @@ func ReadItem(tarfn string, pos int64) (ret io.Reader, err error) {
 	if err != nil {
 		logger.Errorf("cannot open %s: %s", tarfn, err)
 	}
-	defer f.Close()
+	// defer f.Close()
 	p, err := f.Seek(pos, 0)
 	if err != nil {
 		logger.Errorf("cannot seek in %s to %d: %s", f, pos, err)
@@ -79,6 +79,7 @@ func ReadItem(tarfn string, pos int64) (ret io.Reader, err error) {
 		logger.Errorf("cannot seek in %s to %d: got %d", f, pos, p)
 	}
 	tr := tar.NewReader(f)
+	//TODO: close tr and underlying fh, too!
 	hdr, err := tr.Next()
 	if err != nil {
 		logger.Errorf("cannot go to next tar header: %s", err)

@@ -62,7 +62,8 @@ func Get(realm string, uuid UUID) (info Info, reader io.Reader, err error) {
 		logger.Errorf("cannot read config: %s", err)
 		return
 	}
-	for {
+	tries := 0
+	for tries < 3 {
 		// L00
 		if info, reader, err = findAtStaging(uuid, conf.StagingDir); err == nil {
 			//logger.Printf("found at staging: %s", info)
@@ -90,7 +91,11 @@ func Get(realm string, uuid UUID) (info Info, reader io.Reader, err error) {
 			}
 			// logger.Debug("ERR: ", err, " ? ", os.IsNotExist(err))
 			if !os.IsNotExist(err) {
-				return
+				if err == NotFound && tries < 2 {
+					tries++
+				} else {
+					return
+				}
 			}
 		}
 		// force cache reload
@@ -265,13 +270,16 @@ func findAtLevelHigher(realm string, uuid UUID) (info Info, reader io.Reader, er
 	// logger.Trace("%+v", cdbFiles)
 	maxlevel := len(cdbFiles[realm])
 	for level := 1; level < maxlevel; level++ {
+		if len(cdbFiles[realm][level]) == 0 {
+			continue
+		}
 		for _, cdb_fn := range cdbFiles[realm][level] {
 			db, err := cdb.Open(cdb_fn)
 			if err != nil {
 				return info, nil, err
 			}
 			indx, err := db.Data(uuid.Bytes())
-			logger.Debugf("findAtLevelHigher(%s, %s) @L02%d %s ? (%s, %s)",
+			logger.Debugf("findAtLevelHigher(%s, %s) @L%02d %s ? (%s, %s)",
 				realm, uuid, level, cdb_fn, indx, err)
 			switch err {
 			case nil:
@@ -389,10 +397,10 @@ func findAtLevelZero(realm string, uuid UUID) (info Info, reader io.Reader, err 
 		case nil:
 			logger.Debugf("L00 found %s in %s: %s", uuid, cdb_fn, info)
 			return
-		case io.EOF:
+		case io.EOF, NotFound:
 			continue
 		default:
-			logger.Errorf("L00 error in GetFromCdb(%s, %s): %s", uuid, cdb_fn,  err)
+			logger.Errorf("L00 error in GetFromCdb(%s, %s): %s", uuid, cdb_fn, err)
 			return info, nil, err
 		}
 	}
