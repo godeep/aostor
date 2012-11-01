@@ -70,7 +70,9 @@ func ReadItem(tarfn string, pos int64) (ret io.Reader, err error) {
 	if err != nil {
 		logger.Errorf("cannot open %s: %s", tarfn, err)
 	}
-	// defer f.Close()
+	c := new(closer)
+	c.AddClose(func() { f.Close() }) //defer f.Close()
+
 	p, err := f.Seek(pos, 0)
 	if err != nil {
 		logger.Errorf("cannot seek in %s to %d: %s", f, pos, err)
@@ -79,7 +81,6 @@ func ReadItem(tarfn string, pos int64) (ret io.Reader, err error) {
 		logger.Errorf("cannot seek in %s to %d: got %d", f, pos, p)
 	}
 	tr := tar.NewReader(f)
-	//TODO: close tr and underlying fh, too!
 	hdr, err := tr.Next()
 	if err != nil {
 		logger.Errorf("cannot go to next tar header: %s", err)
@@ -93,18 +94,44 @@ func ReadItem(tarfn string, pos int64) (ret io.Reader, err error) {
 	// TODO: cut decompression if not used
 	case strings.HasSuffix(hdr.Name, SuffData+"bz2"):
 		logger.Tracef("bz[%s] length=%d", hdr.Name, hdr.Size)
-		ret = bzip2.NewReader(io.LimitReader(tr, hdr.Size))
+		br := bzip2.NewReader(io.LimitReader(tr, hdr.Size))
+		// c.AddClose(func() { br.Close() })
+		c.r = br
 	case strings.HasSuffix(hdr.Name, SuffData+"gz"):
 		logger.Tracef("gz[%s] length=%d", hdr.Name, hdr.Size)
-		ret, err = gzip.NewReader(io.LimitReader(tr, hdr.Size))
+		gr, e := gzip.NewReader(io.LimitReader(tr, hdr.Size))
+		err = e
+		// c.AddClose(func() { gr.Close() })
+		c.r = gr
 	case true:
 		logger.Tracef("[%s] length=%d", hdr.Name, hdr.Size)
-		ret = tr
+		c.r = tr
 	}
+	ret = c
 	if err != nil {
 		logger.Errorf("ret=%s err=%s", ret, err)
 	}
 	return ret, err
+}
+
+type closer struct {
+	closes [](func())
+	r      io.Reader
+}
+
+func (c *closer) AddClose(fun func()) {
+	if c.closes == nil {
+		c.closes = make([](func()), 0, 2)
+	}
+	c.closes = append(c.closes, fun)
+}
+func (c closer) Read(b []byte) (int, error) {
+	return c.r.Read(b)
+}
+func (c closer) Close() {
+	for _, fun := range c.closes {
+		fun()
+	}
 }
 
 // Writes the given file into tarfn

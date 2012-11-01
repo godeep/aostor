@@ -129,6 +129,9 @@ func baseHandler(w http.ResponseWriter, r *http.Request) {
 			} else {
 				logger.Printf("written %d bytes", n)
 			}
+			if closable, ok := data.(io.Closer); ok {
+				closable.Close()
+			}
 			return
 		}
 	} else if r.Method == "POST" {

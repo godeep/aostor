@@ -45,7 +45,7 @@ func CompactIndices(realm string, level uint, onChange func()) error {
 		return err
 	}
 	var n int
-	for ; level < 10; level++ {
+	for level < 100 && fileExists(conf.IndexDir+"/"+fmt.Sprintf("L%02d")) {
 		n, err = compactLevel(level, conf.IndexDir, conf.IndexThreshold)
 		if err != nil {
 			logger.Errorf("compactLevel(%s, %s, %s): %s", level, conf.IndexDir, conf.IndexThreshold, err)
