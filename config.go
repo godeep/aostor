@@ -99,7 +99,7 @@ func ReadConf(fn string, realm string) (c Config, err error) {
 	}
 	c, err = readConf(fn, realm, configs[k_def])
 	if err != nil {
-		logger.Error("cannot open config: %s", err)
+		logger.Errorf("cannot open config: %s", err)
 		return
 	}
 	if _, ok = configs[k_def]; !ok {
@@ -140,11 +140,13 @@ func readConf(fn string, realm string, common Config) (c Config, err error) {
 	if err != nil {
 		return c, err
 	}
-	for i := 0; i < 2; i++ {
-		dn := c.IndexDir + "/" + fmt.Sprintf("L%02d", i)
-		if !fileExists(dn) {
-			if err = os.MkdirAll(dn, 0755); err != nil {
-				return c, err
+	if realm != "" {
+		for i := 0; i < 2; i++ {
+			dn := c.IndexDir + "/" + fmt.Sprintf("L%02d", i)
+			if !fileExists(dn) {
+				if err = os.MkdirAll(dn, 0755); err != nil {
+					return c, err
+				}
 			}
 		}
 	}
@@ -160,7 +162,7 @@ func readConf(fn string, realm string, common Config) (c Config, err error) {
 	} else {
 		i, err = conf.Int("threshold", "index")
 		if err != nil {
-			logger.Warn("cannot get threshold/index: %s", err)
+			logger.Warn("cannot get threshold/index: ", err)
 			c.IndexThreshold = DefaultIndexThreshold
 		} else {
 			c.IndexThreshold = uint(i)
@@ -172,7 +174,7 @@ func readConf(fn string, realm string, common Config) (c Config, err error) {
 	} else {
 		i, err = conf.Int("threshold", "tar")
 		if err != nil {
-			logger.Warn("cannot get threshold/tar: %s", err)
+			logger.Warn("cannot get threshold/tar: ", err)
 			c.TarThreshold = DefaultTarThreshold
 		} else {
 			c.TarThreshold = uint64(i)
@@ -185,7 +187,7 @@ func readConf(fn string, realm string, common Config) (c Config, err error) {
 		var hp string
 		hp, err = conf.String("http", "hostport")
 		if err != nil {
-			logger.Warn("cannot get hostport: %s", err)
+			logger.Warn("cannot get hostport: ", err)
 			c.Hostport = DefaultHostport
 		} else {
 			c.Hostport = hp
@@ -198,7 +200,7 @@ func readConf(fn string, realm string, common Config) (c Config, err error) {
 		var realms string
 		realms, err = conf.String("http", "realms")
 		if err != nil {
-			logger.Warn("cannot get realms: %s", err)
+			logger.Warn("cannot get realms: ", err)
 		} else {
 			c.Realms = strings.Split(realms, ",")
 		}
@@ -210,7 +212,7 @@ func readConf(fn string, realm string, common Config) (c Config, err error) {
 	} else {
 		hash, err = conf.String("hash", "content")
 		if err != nil {
-			logger.Warn("cannot get content hash: %s", err)
+			logger.Warn("cannot get content hash: ", err)
 			err = nil
 		}
 	}
@@ -254,7 +256,7 @@ func fileMode(fn string) os.FileMode {
 func fifoExists(pipefn string) bool {
 	dh, err := os.Open(filepath.Dir(pipefn))
 	if err != nil {
-		logger.Error("cannot open directory of %s: %s", pipefn, err)
+		logger.Errorf("cannot open directory of %s: %s", pipefn, err)
 		return false
 	}
 	bn := filepath.Base(pipefn)
@@ -269,7 +271,7 @@ func fifoExists(pipefn string) bool {
 				mode = fi.Mode()
 				logger.Trace("mode=%v", mode)
 				if mode&os.ModeNamedPipe == 0 {
-					logger.Warn("command_pipe=%s, but that is not a pipe!", pipefn)
+					logger.Warnf("command_pipe=%s, but that is not a pipe!", pipefn)
 					return false
 				} else {
 					return true

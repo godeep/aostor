@@ -36,29 +36,31 @@ var stopIteration = errors.New("StopIteration")
 
 // compacts staging dir: moves info and data files to tar
 func CompactStaging(realm string, onChange NotifyFunc) error {
+	//TODO: lock dir!
 	conf, err := ReadConf("", realm)
 	if err != nil {
 		return err
 	}
 	n := DeDup(conf.StagingDir, conf.ContentHash)
-	logger.Info("DeDup: %d", n)
+	logger.Infof("DeDup: %d", n)
 
+	size := uint64(0)
 	var hamster listDirFunc = func(elt fElt) error {
-		size := uint64(0)
 		size += inBs(fileSize(elt.infoFn))
 		if elt.isSymlink {
 			size += BS
 		} else {
 			size += inBs(fileSize(elt.dataFn))
 		}
-		logger.Debug("elt=%s => size=%d", elt, size)
+		logger.Tracef("elt=%s => size=%d", elt, size)
 		if size >= conf.TarThreshold {
 			uuid, err := NewUUID()
 			if err != nil {
 				return err
 			}
 			tarfn := realm + "-" + strNow()[:15] + "-" + uuid.String() + ".tar"
-			if err = CreateTar(conf.TarDir+"/"+tarfn, conf.StagingDir); err != nil {
+			logger.Info("creating ", tarfn)
+			if err = CreateTar(conf.TarDir+"/"+tarfn, conf.StagingDir, conf.TarThreshold); err != nil {
 				return err
 			}
 			tarfn_a := conf.TarDir + "/" + tarfn
@@ -72,23 +74,32 @@ func CompactStaging(realm string, onChange NotifyFunc) error {
 			if onChange != nil {
 				onChange()
 			}
-			if err = CompactIndices(realm, 0, onChange); err != nil {
-				return err
-			}
-			return stopIteration
+			// return stopIteration
+			size = uint64(0)
 		}
 		return nil
 	}
-	return listDirMap(conf.StagingDir, conf.ContentHash, hamster)
+	if err = listDirMap(conf.StagingDir, conf.ContentHash, hamster); err != nil {
+		logger.Error("error compacting staging: ", err)
+		return err
+	}
+	logger.Info("staging compacted successfully")
+	if err = CompactIndices(realm, 0, onChange); err != nil {
+		logger.Error("error compacting indices: ", err)
+		return err
+	}
+	logger.Info("indices compacted successfully")
+	return nil
 }
 
 // deduplication: replace data with a symlink to a previous data with the same contant-hash-...
 func DeDup(path string, hash string) int {
+	//TODO: lock dir!
 	n := 0
 	hashes := make(map[string][]fElt, 16)
 	primals := make(map[string][]string, 16)
 	var hamster listDirFunc = func(elt fElt) error {
-		logger.Trace("%s sl? %s lo=%s", elt.contentHash, elt.isSymlink, FindLinkOrigin(elt.dataFn))
+		logger.Tracef("%s sl? %s lo=%s", elt.contentHash, elt.isSymlink, FindLinkOrigin(elt.dataFn))
 		if elt.contentHash == "" {
 			return nil
 		} else if elt.isSymlink {
@@ -105,7 +116,7 @@ func DeDup(path string, hash string) int {
 		return nil
 	}
 	if err := listDirMap(path, hash, hamster); err != nil {
-		logger.Error("error listing %s: %s", path, err)
+		logger.Errorf("error listing %s: %s", path, err)
 		return 0
 	}
 	//logger.Printf("hashes=%s", hashes)
@@ -132,11 +143,11 @@ func DeDup(path string, hash string) int {
 				continue
 			}
 			if err := os.Remove(elt.dataFn); err != nil {
-				logger.Warn("cannot remove %s: %s", elt.dataFn, err)
+				logger.Warnf("cannot remove %s: %s", elt.dataFn, err)
 			} else {
 				p := strings.LastIndex(elt.dataFn, "#")
 				if err := os.Symlink(other.dataFn, elt.dataFn[:p]+SuffLink); err != nil {
-					logger.Warn("cannot create symlink %s for %s: %s", elt.dataFn, other.dataFn, err)
+					logger.Warnf("cannot create symlink %s for %s: %s", elt.dataFn, other.dataFn, err)
 				} else {
 					n++
 				}
@@ -157,16 +168,16 @@ type fElt struct {
 type listDirFunc func(fElt) error
 
 func uuidKey(key string) []byte {
-	uuid, err := NewUUIDFromString(key)
+	uuid, err := UUIDFromString(key)
 	if err != nil {
-		logger.Error("cannot convert ", key, " to uuid: ", err)
+		logger.Errorf("cannot convert ", key, " to uuid: ", err)
 		return []byte(key)
 	}
 	return uuid.Bytes()
 }
 
 // Copies files from the given directory into a given tar file
-func CreateTar(tarfn string, dirname string) error {
+func CreateTar(tarfn string, dirname string, sizeLimit uint64) error {
 	tw, fh, pos, err := OpenForAppend(tarfn)
 	//fh, err := os.OpenFile(tarfn, os.O_APPEND|os.O_CREATE, 0640)
 	if err != nil {
@@ -183,11 +194,11 @@ func CreateTar(tarfn string, dirname string) error {
 	defer cfh.Close()
 	adder, closer, err := cdb.MakeFactory(cfh)
 	if err != nil {
-		logger.Critical("cannot create factory: %s", err)
+		logger.Criticalf("cannot create factory: %s", err)
 		return err
 	}
 	links := make(map[string]uint64, 32)
-	buf := make([]fElt, 0)
+	buf := make([]fElt, 0, 8)
 
 	var hamster listDirFunc = func(elt fElt) error {
 		// logger.Printf("fn=%s -> key=%s ?%s", fn, key, isInfo)
@@ -195,7 +206,7 @@ func CreateTar(tarfn string, dirname string) error {
 			elt.info.Ipos = pos
 			_, pos, err = appendFile(tw, fh, elt.infoFn)
 			if err != nil {
-				logger.Critical("cannot append %s", elt.infoFn)
+				logger.Criticalf("cannot append %s", elt.infoFn)
 				os.Exit(1)
 			}
 			if elt.isSymlink {
@@ -207,7 +218,7 @@ func CreateTar(tarfn string, dirname string) error {
 				elt.info.Dpos = linkpos
 				_, pos, err = appendLink(tw, fh, elt.dataFn)
 				if err != nil {
-					logger.Critical("cannot append %s", elt.dataFn)
+					logger.Criticalf("cannot append %s", elt.dataFn)
 					os.Exit(1)
 				}
 			} else {
@@ -215,26 +226,31 @@ func CreateTar(tarfn string, dirname string) error {
 				links[elt.dataFn] = pos
 				_, pos, err = appendFile(tw, fh, elt.dataFn)
 				if err != nil {
-					logger.Critical("cannot append %s", elt.dataFn)
+					logger.Criticalf("cannot append %s", elt.dataFn)
 					os.Exit(1)
 				}
 			}
 			// c <- cdb.Element{StrToBytes(elt.info.Key), elt.info.Bytes()}
 			adder(cdb.Element{uuidKey(elt.info.Key), elt.info.Bytes()})
 		}
+		// logger.Tracef("buf=%s", buf)
+		if pos > 0 && pos > sizeLimit {
+			return stopIteration
+		}
 		return nil
 	}
 	err = listDirMap(dirname, "", hamster)
 	if err != nil {
-		logger.Critical("error listing %s: %s", dirname, err)
+		logger.Criticalf("error listing %s: %s", dirname, err)
 		return err
 	}
 	// close(c)
+	// logger.Tracef("buf=%s", buf)
 
 	for _, elt := range buf {
 		linkpos, ok := links[elt.dataFnOrig]
 		if !ok {
-			logger.Warn("cannot find linkpos for %s -> %s", elt.dataFn, elt.dataFnOrig)
+			logger.Warnf("cannot find linkpos for %s -> %s", elt.dataFn, elt.dataFnOrig)
 			elt.info.Dpos = pos
 			_, pos, err = appendFile(tw, fh, elt.dataFn)
 		} else {
@@ -242,10 +258,10 @@ func CreateTar(tarfn string, dirname string) error {
 			_, pos, err = appendLink(tw, fh, elt.dataFn)
 		}
 		if err != nil {
-			logger.Critical("cannot append %s", elt.dataFn)
+			logger.Criticalf("cannot append %s", elt.dataFn)
 			os.Exit(1)
 		}
-		// logger.Debug("adding ",keyb," to ",)
+		// logger.Debugf("adding ",keyb," to ",)
 		adder(cdb.Element{uuidKey(elt.info.Key), elt.info.Bytes()})
 	}
 
@@ -256,7 +272,7 @@ func CreateTar(tarfn string, dirname string) error {
 	err = closer()
 	// err = <-d
 	if err != nil {
-		logger.Error("cdbMake error: %s", err)
+		logger.Errorf("cdbMake error: %s", err)
 	}
 	return err
 }
@@ -265,7 +281,7 @@ func listDirMap(path string, hash string, hamster listDirFunc) error {
 	possibleEndings := []string{SuffData, SuffLink}
 	dh, err := os.Open(path)
 	if err != nil {
-		logger.Critical("cannot open dir %s: %s", path, err)
+		logger.Criticalf("cannot open dir %s: %s", path, err)
 		os.Exit(1)
 	}
 	var (
@@ -278,7 +294,7 @@ func listDirMap(path string, hash string, hamster listDirFunc) error {
 		keyfiles, err := dh.Readdir(1024)
 		if err != nil {
 			if err != io.EOF {
-				logger.Error("cannot list dir %s: %s", path, err)
+				logger.Errorf("cannot list dir %s: %s", path, err)
 			}
 			break
 		}
@@ -295,11 +311,11 @@ func listDirMap(path string, hash string, hamster listDirFunc) error {
 				info, err = ReadInfo(ifh)
 				ifh.Close()
 				if err != nil {
-					logger.Error("cannot read info from %s: %s", elt.infoFn, err)
+					logger.Errorf("cannot read info from %s: %s", elt.infoFn, err)
 					continue
 				}
 			} else {
-				logger.Error("cannot read info from %s: %s", elt.infoFn, err)
+				logger.Errorf("cannot read info from %s: %s", elt.infoFn, err)
 				continue
 			}
 
@@ -333,7 +349,7 @@ func listDirMap(path string, hash string, hamster listDirFunc) error {
 					if err == stopIteration {
 						break
 					} else {
-						logger.Error("error with %s: %s", elt, err)
+						logger.Errorf("error with %s: %s", elt, err)
 						return err
 					}
 				}
@@ -345,7 +361,7 @@ func listDirMap(path string, hash string, hamster listDirFunc) error {
 			if err == stopIteration {
 				break
 			} else {
-				logger.Error("error with %s: %s", elt, err)
+				logger.Errorf("error with %s: %s", elt, err)
 				return err
 			}
 		}
@@ -416,15 +432,20 @@ func cleanupStaging(path string, tarfn string) error {
 	defer cfh.Close()
 	endings := []string{SuffData, SuffLink}
 	return cdb.DumpMap(cfh, func(elt cdb.Element) error {
-		base := path + "/" + BytesToStr(elt.Key)
-		// logger.Trace("base %s exists? %s", base, fileExists(base+SuffInfo))
+		uuid, err := UUIDFromBytes(elt.Key)
+		if err != nil {
+			logger.Errorf("cannot convert %s to uuid: %s", elt.Key, err)
+			return err
+		}
+		base := path + "/" + uuid.String()
+		// logger.Tracef("base %s exists? %s", base, fileExists(base+SuffInfo))
 		if fileExists(base + SuffInfo) {
 			for _, end := range endings {
 				err = os.Remove(base + end)
 				if err == nil {
 					err = os.Remove(base + SuffInfo)
 					if err != nil {
-						logger.Error("error removing %s: %s", base+SuffInfo, err)
+						logger.Errorf("error removing %s: %s", base+SuffInfo, err)
 						return err
 					}
 					break
@@ -461,7 +482,7 @@ func dirCount(dirname string) uint64 {
 			} else if err == io.EOF {
 				break
 			} else {
-				logger.Error("cannot list %s: %s", dirname, err)
+				logger.Errorf("cannot list %s: %s", dirname, err)
 				break
 			}
 		}

@@ -118,7 +118,7 @@ func NewUUID() (UUID, error) {
 	return b, nil
 }
 
-func NewUUIDFromString(text string) (b UUID, err error) {
+func UUIDFromString(text string) (b UUID, err error) {
 	u, e := hex.DecodeString(text)
 	if e != nil {
 		err = e
@@ -126,6 +126,15 @@ func NewUUIDFromString(text string) (b UUID, err error) {
 	}
 	for i := 0; i < 16 && i < len(u); i++ {
 		b[i] = u[i]
+	}
+	return
+}
+func UUIDFromBytes(text []byte) (b UUID, err error) {
+	if len(text) == 32 {
+		return UUIDFromString(string(text))
+	}
+	for i := 0; i < 16 && i < len(text); i++ {
+		b[i] = text[i]
 	}
 	return
 }

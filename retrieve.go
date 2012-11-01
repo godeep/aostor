@@ -59,7 +59,7 @@ var (
 func Get(realm string, uuid UUID) (info Info, reader io.Reader, err error) {
 	conf, err := ReadConf("", realm)
 	if err != nil {
-		logger.Error("cannot read config: %s", err)
+		logger.Errorf("cannot read config: %s", err)
 		return
 	}
 	for {
@@ -75,7 +75,7 @@ func Get(realm string, uuid UUID) (info Info, reader io.Reader, err error) {
 		if err = fillCdbCache(realm, conf.IndexDir, false); err != nil {
 			return
 		}
-		logger.Debug("findAtLevelZero(", realm, ", ", uuid, ")")
+		logger.Debugf("findAtLevelZero(%s, %s)", realm, uuid)
 		if info, reader, err = findAtLevelZero(realm, uuid); err == nil {
 			//logger.Printf("found at level zero: %s", info)
 			return
@@ -84,7 +84,7 @@ func Get(realm string, uuid UUID) (info Info, reader io.Reader, err error) {
 			if err = fillTarCache(realm, conf.TarDir, false); err != nil {
 				return
 			}
-			logger.Debug("findAtLevelHigher(", realm, ", ", uuid, ")")
+			logger.Debugf("findAtLevelHigher(%s, %s)", realm, uuid)
 			if info, reader, err = findAtLevelHigher(realm, uuid); err == nil {
 				return
 			}
@@ -99,7 +99,7 @@ func Get(realm string, uuid UUID) (info Info, reader io.Reader, err error) {
 			logger.Error("error with cache reload: ", err)
 			return
 		}
-		logger.Warn("LOOP AGAIN as searching for ", uuid, "@", realm)
+		logger.Warnf("LOOP AGAIN as searching for %s@%s", uuid, realm)
 		time.Sleep(time.Second)
 	}
 	return
@@ -108,7 +108,7 @@ func Get(realm string, uuid UUID) (info Info, reader io.Reader, err error) {
 //fills caches (reads tar files and cdb files, caches path)
 func FillCaches(force bool) error {
 	config, err := ReadConf("", "")
-	logger.Info("FillCaches on %s", config)
+	logger.Infof("FillCaches on %s", config)
 	if err != nil {
 		return err
 	}
@@ -146,11 +146,11 @@ func fillCdbCache(realm string, indexdir string, force bool) error {
 		for i := len(cf); i <= level; i++ {
 			cf = append(cf, make([]string, 0, 10))
 		}
-		logger.Debug("adding ", fn, " to cf[", level, "]")
+		logger.Tracef("adding %s to cf[%d]", fn, level)
 		cf[level] = append(cf[level], fn)
 		return nil
 	})
-	logger.Debug("cf=", cf)
+	logger.Debug("cf=", len(cf))
 	if err != nil {
 		logger.Error("Error in fillCdbCache: %s", err)
 		return err
@@ -216,7 +216,7 @@ func fillTarCache(realm string, tardir string, force bool) error {
 	if err != nil {
 		logger.Error("error with fillTarCache: ", err)
 	}
-	logger.Info("fillTarCache(", realm, "): ", tf)
+	logger.Infof("fillTarCache(%s): %d", realm, len(tf))
 	tarFiles[realm] = tf
 	return nil
 }
@@ -261,34 +261,38 @@ func findAtLevelHigher(realm string, uuid UUID) (info Info, reader io.Reader, er
 		err = NotFound
 		return
 	}
-	logger.Debug("findAtLevelHigher(", realm, ", ", uuid, cdbFiles[realm])
+	logger.Debugf("findAtLevelHigher(%s, %s)", realm, uuid)
 	// logger.Trace("%+v", cdbFiles)
-	for _, cdb_fn := range cdbFiles[realm][1] {
-		db, err := cdb.Open(cdb_fn)
-		if err != nil {
-			return info, nil, err
-		}
-		indx, err := db.Data(uuid.Bytes())
-		logger.Debug("findAtLevelHigher(", realm, ", ", uuid, ") @ ", cdb_fn, " ? (", indx, ", ", err, ")")
-		switch err {
-		case nil:
-			data, err := db.Data(indx)
-			db.Close()
+	maxlevel := len(cdbFiles[realm])
+	for level := 1; level < maxlevel; level++ {
+		for _, cdb_fn := range cdbFiles[realm][level] {
+			db, err := cdb.Open(cdb_fn)
 			if err != nil {
-				logger.Error("cannot get ", indx, " from ", cdb_fn, ": ", err)
 				return info, nil, err
 			}
-			tarfn_b = BytesToStr(data)
-			break
-		case io.EOF:
+			indx, err := db.Data(uuid.Bytes())
+			logger.Debugf("findAtLevelHigher(%s, %s) @L02%d %s ? (%s, %s)",
+				realm, uuid, level, cdb_fn, indx, err)
+			switch err {
+			case nil:
+				data, err := db.Data(indx)
+				db.Close()
+				if err != nil {
+					logger.Error("cannot get ", indx, " from ", cdb_fn, ": ", err)
+					return info, nil, err
+				}
+				tarfn_b = BytesToStr(data)
+				break
+			case io.EOF:
+				db.Close()
+				continue
+			default:
+				db.Close()
+				return info, nil, err
+			}
 			db.Close()
-			continue
-		default:
-			db.Close()
-			return info, nil, err
+			logger.Debug("searching ", uuid, ": ", tarfn_b, " ", err)
 		}
-		db.Close()
-		logger.Debug("searching ", uuid, ": ", tarfn_b, " ", err)
 	}
 	if err != nil {
 		if err == io.EOF {
@@ -378,22 +382,22 @@ func findAtLevelZero(realm string, uuid UUID) (info Info, reader io.Reader, err 
 		err = NotFound
 		return
 	}
-	logger.Debug("L00 files at ", realm, ": ", cdbFiles[realm][0])
+	logger.Debugf("L00 files at %s: %d", realm, len(cdbFiles[realm][0]))
 	for _, cdb_fn := range cdbFiles[realm][0] {
 		info, reader, err = GetFromCdb(uuid, cdb_fn)
 		switch err {
 		case nil:
-			logger.Debug("L00 found ", uuid, " in ", cdb_fn, ": ", info)
+			logger.Debugf("L00 found %s in %s: %s", uuid, cdb_fn, info)
 			return
 		case io.EOF:
 			continue
 		default:
-			logger.Error("L00 error in GetFromCdb(", uuid, ", ", cdb_fn, "): ", err)
+			logger.Errorf("L00 error in GetFromCdb(%s, %s): %s", uuid, cdb_fn,  err)
 			return info, nil, err
 		}
 	}
 
-	logger.Debug("findAtLevelZero(", realm, ", ", uuid, "): ", info)
+	logger.Debugf("findAtLevelZero(%s, %s): %s", realm, uuid, info)
 	return info, nil, NotFound
 }
 

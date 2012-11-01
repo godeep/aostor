@@ -64,7 +64,7 @@ func main() {
 
 	if *todo_tar {
 		tarfn, dirname := flag.Arg(0), flag.Arg(1)
-		if err := aostor.CreateTar(tarfn, dirname); err != nil {
+		if err := aostor.CreateTar(tarfn, dirname, 0); err != nil {
 			fmt.Printf("ERROR shoveling %s to %s: %s", tarfn, dirname, err)
 		} else {
 			fmt.Println("OK")

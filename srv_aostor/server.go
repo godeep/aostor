@@ -24,6 +24,7 @@ import (
 	"encoding/base64"
 	"flag"
 	"fmt"
+	"github.com/tgulacsi/aostor"
 	"io"
 	"log"
 	"net/http"
@@ -33,7 +34,6 @@ import (
 	"strings"
 	"syscall"
 	"time"
-	"github.com/tgulacsi/aostor"
 )
 
 var logger = log.New(os.Stderr, "server ", log.LstdFlags|log.Lshortfile)
@@ -108,7 +108,7 @@ func baseHandler(w http.ResponseWriter, r *http.Request) {
 	logger.Printf("realm=%s path=%s", realm, path)
 
 	if r.Method == "GET" || r.Method == "HEAD" {
-		key, err := aostor.NewUUIDFromString(path)
+		key, err := aostor.UUIDFromString(path)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("404 Bad key %s", path), 404)
 			return
@@ -244,7 +244,7 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 	logger.Printf("got %s", r)
 }
 
-// _signal panics with tip, 
+// _signal panics with tip,
 // The first bad revision is:
 // changeset:   14713:bb4ee132b967
 // user:        Luuk van Dijk <lvd@golang.org>
