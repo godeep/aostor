@@ -26,6 +26,7 @@ import (
 	"github.com/tgulacsi/go-cdb"
 	"io"
 	"os"
+	"path/filepath"
 	// "path/filepath"
 	"strings"
 )
@@ -121,7 +122,7 @@ func DeDup(path string, hash string) int {
 	}
 	//logger.Printf("hashes=%s", hashes)
 	//logger.Printf("primals=%s", primals)
-
+	var p int
 	// TODO: primals for first in hashes
 	for _, elts := range hashes {
 		other := fElt{}
@@ -145,9 +146,25 @@ func DeDup(path string, hash string) int {
 			if err := os.Remove(elt.dataFn); err != nil {
 				logger.Warnf("cannot remove %s: %s", elt.dataFn, err)
 			} else {
-				p := strings.LastIndex(elt.dataFn, "#")
-				if err := os.Symlink(other.dataFn, elt.dataFn[:p]+SuffLink); err != nil {
+				linkfn := elt.dataFn
+				dstfn := other.dataFn
+				if filepath.Dir(dstfn) == filepath.Dir(linkfn) {
+					dstfn = filepath.Base(dstfn)
+				} else {
+					if dstfn, err = filepath.Rel(filepath.Dir(linkfn), dstfn); err != nil {
+						logger.Warn("no rel path for dstfn: ", err)
+					}
+				}
+				p = len(linkfn) - 1
+				if linkfn[p:p+len(SuffData)] == SuffData {
+				} else {
+					p = strings.LastIndex(linkfn, SuffData)
+				}
+				linkfn = linkfn[:p] + SuffLink
+				logger.Debugf("creating symlink from %s to %s", linkfn, filepath.Base(other.dataFn))
+				if err := os.Symlink(filepath.Base(other.dataFn), linkfn); err != nil {
 					logger.Warnf("cannot create symlink %s for %s: %s", elt.dataFn, other.dataFn, err)
+					os.Exit(1)
 				} else {
 					n++
 				}
@@ -199,6 +216,11 @@ func CreateTar(tarfn string, dirname string, sizeLimit uint64) error {
 	}
 	links := make(map[string]uint64, 32)
 	buf := make([]fElt, 0, 8)
+	symlinks, err := harvestSymlinks(dirname)
+	if err != nil {
+		logger.Error("cannot read symlinks beforehand: ", err)
+		return err
+	}
 
 	var hamster listDirFunc = func(elt fElt) error {
 		// logger.Printf("fn=%s -> key=%s ?%s", fn, key, isInfo)
@@ -229,6 +251,24 @@ func CreateTar(tarfn string, dirname string, sizeLimit uint64) error {
 					logger.Criticalf("cannot append %s", elt.dataFn)
 					os.Exit(1)
 				}
+
+				for _, sym := range symlinks[elt.dataFn] {
+					linkpos, ok := links[sym.dataFnOrig]
+					logger.Debugf("adding %s (symlink of %s) linkpos? %s",
+						sym, elt.dataFn, ok)
+					if !ok {
+						buf = append(buf, sym)
+						return nil
+					}
+					sym.info.Dpos = linkpos
+					_, pos, err = appendLink(tw, fh, sym.dataFn)
+					if err != nil {
+						logger.Criticalf("cannot append %s", sym.dataFn)
+						os.Exit(1)
+					}
+					adder(cdb.Element{uuidKey(sym.info.Key), sym.info.Bytes()})
+				}
+				delete(symlinks, elt.dataFn)
 			}
 			// c <- cdb.Element{StrToBytes(elt.info.Key), elt.info.Bytes()}
 			adder(cdb.Element{uuidKey(elt.info.Key), elt.info.Bytes()})
@@ -277,6 +317,60 @@ func CreateTar(tarfn string, dirname string, sizeLimit uint64) error {
 	return err
 }
 
+func harvestSymlinks(path string) (map[string][]fElt, error) {
+	dh, err := os.Open(path)
+	if err != nil {
+		logger.Criticalf("cannot open dir %s: %s", path, err)
+		os.Exit(1)
+	}
+	defer dh.Close()
+	links := make(map[string][]fElt, 1024)
+	var (
+		linkpath, origin string
+		elt              fElt
+		ifh              io.ReadCloser
+	)
+	for {
+		files, err := dh.Readdir(1024)
+		if err != nil {
+			if err != io.EOF {
+				logger.Errorf("cannot list dir %s: %s", path, err)
+			}
+			break
+		}
+		for _, fi := range files {
+			if fi.Mode()&os.ModeSymlink == 0 {
+				continue
+			}
+			bn := fi.Name()
+			linkpath = path + "/" + bn
+			origin = FindLinkOrigin(linkpath)
+			if !(strings.HasSuffix(bn, SuffLink) && origin != linkpath && fileExists(origin)) {
+				continue
+			}
+			bn = bn[:len(bn)-1]
+			elt = fElt{infoFn: path + "/" + bn + SuffInfo,
+				dataFn: linkpath, isSymlink: true, dataFnOrig: origin}
+			if ifh, err = os.Open(elt.infoFn); err != nil {
+				logger.Errorf("cannot open info file %s: %s", elt.infoFn, err)
+				return nil, err
+			}
+			elt.info, err = ReadInfo(ifh)
+			ifh.Close()
+			if err != nil {
+				logger.Errorf("cannot read info from %s: %s", ifh, err)
+				return nil, err
+			}
+
+			if arr, ok := links[elt.dataFnOrig]; !ok || arr == nil {
+				links[elt.dataFnOrig] = make([]fElt, 0, 4)
+			}
+			links[elt.dataFnOrig] = append(links[elt.dataFnOrig], elt)
+		}
+	}
+	return links, nil
+}
+
 func listDirMap(path string, hash string, hamster listDirFunc) error {
 	possibleEndings := []string{SuffData, SuffLink}
 	dh, err := os.Open(path)
@@ -284,6 +378,7 @@ func listDirMap(path string, hash string, hamster listDirFunc) error {
 		logger.Criticalf("cannot open dir %s: %s", path, err)
 		os.Exit(1)
 	}
+	defer dh.Close()
 	var (
 		info, emptyInfo Info
 		elt, emptyElt   fElt
@@ -438,10 +533,11 @@ func cleanupStaging(path string, tarfn string) error {
 			return err
 		}
 		base := path + "/" + uuid.String()
-		// logger.Tracef("base %s exists? %s", base, fileExists(base+SuffInfo))
+		logger.Debugf("base %s exists? %s", base, fileExists(base+SuffInfo))
 		if fileExists(base + SuffInfo) {
 			for _, end := range endings {
 				err = os.Remove(base + end)
+				logger.Debugf("Remove(%s): %s", base+end, err)
 				if err == nil {
 					err = os.Remove(base + SuffInfo)
 					if err != nil {
