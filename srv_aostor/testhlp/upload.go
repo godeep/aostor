@@ -24,6 +24,7 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
+	"math/rand"
 	"mime/multipart"
 	"net/http"
 	"net/http/httputil"
@@ -62,14 +63,16 @@ func OneRound(baseUrl string, parallel, N int, urlch chan<- string, dump bool) (
 				errch <- fmt.Errorf("error getting payload(%d): %s", i, err)
 				break
 			}
-			if url, err = CheckedUpload(baseUrl, payload, dump && bp < 1); err != nil {
-				errch <- fmt.Errorf("error uploading: %s", err)
-				break
-			}
-			bp += int64(len(payload.encoded))
-			select {
-			case urlch <- url:
-			default:
+			for j := rand.Int() % 5; j < 5; j++ {
+				if url, err = CheckedUpload(baseUrl, payload, dump && bp < 1); err != nil {
+					errch <- fmt.Errorf("error uploading: %s", err)
+					break
+				}
+				bp += int64(len(payload.encoded))
+				select {
+				case urlch <- url:
+				default:
+				}
 			}
 		}
 		donech <- bp
