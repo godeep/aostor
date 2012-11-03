@@ -30,6 +30,7 @@ import (
 func main() {
 	defer aostor.FlushLog()
 	hostport := flag.String("http", "", "already running server's address0")
+	stage_interval := flag.Int("stage", 5, "stage interval (seconds)")
 	flag.Parse()
 	srv, err := testhlp.StartServer(*hostport)
 	if err != nil {
@@ -59,17 +60,19 @@ func main() {
 			}
 		}
 	}(urlch)
-	ticker := time.Tick(5 * time.Second)
-	// defer close(ticker)
-	go func(ch <-chan time.Time, hostport string) {
-		for now := range ch {
-			log.Printf("starting shovel at %s...", now)
-			if err = testhlp.Shovel(srv.Pid, hostport); err != nil {
-				log.Printf("error with shovel: %s", err)
-				break
+	if *stage_interval > 0 {
+		ticker := time.Tick(time.Duration(*stage_interval) * time.Second)
+		// defer close(ticker)
+		go func(ch <-chan time.Time, hostport string) {
+			for now := range ch {
+				log.Printf("starting shovel at %s...", now)
+				if err = testhlp.Shovel(srv.Pid, hostport); err != nil {
+					log.Printf("error with shovel: %s", err)
+					break
+				}
 			}
-		}
-	}(ticker, *hostport)
+		}(ticker, *hostport)
+	}
 	for i := 4; i < 100; i++ {
 		log.Printf("starting round %d...", i)
 		if err = testhlp.OneRound(srv.Url, i, 100, urlch, i == 1); err != nil {

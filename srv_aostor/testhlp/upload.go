@@ -239,7 +239,7 @@ func Upload(baseUrl string, payload PLoad, dump bool) ([]byte, error) {
 	if n != 32 || bytes.Equal(bytes.ToUpper(key[:3]), []byte{'E', 'R', 'R'}) {
 		return nil, fmt.Errorf("bad response: %s", key)
 	}
-	log.Printf("%s", key)
+	// log.Printf("%s", key)
 	return key, nil
 }
 

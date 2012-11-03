@@ -31,6 +31,7 @@ func main() {
 	defer aostor.FlushLog()
 	var pid int
 	var hostport string
+	var changed bool
 	flag.IntVar(&pid, "p", 0, "pid to SIGUSR1 on change")
 	flag.StringVar(&hostport, "http", "", "host:port")
 	todo_tar := flag.Bool("t", false, "shovel tar to dir")
@@ -61,6 +62,13 @@ func main() {
 		}
 
 	}
+	oco := onChange
+	onChange = func() {
+		changed = true
+		if oco != nil {
+			oco()
+		}
+	}
 
 	if *todo_tar {
 		tarfn, dirname := flag.Arg(0), flag.Arg(1)
@@ -75,7 +83,11 @@ func main() {
 		if err := aostor.CompactStaging(realm, onChange); err != nil {
 			fmt.Printf("ERROR compacting %s: %s", realm, err)
 		} else {
-			fmt.Println("OK")
+			if changed {
+				fmt.Println("no change")
+			} else {
+				fmt.Println("OK")
+			}
 		}
 	} else {
 		fmt.Printf(`Usage:

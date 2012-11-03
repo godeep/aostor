@@ -26,8 +26,6 @@ import (
 	"github.com/tgulacsi/go-cdb"
 	"io"
 	"os"
-	"path/filepath"
-	// "path/filepath"
 	"strings"
 )
 
@@ -37,11 +35,11 @@ var stopIteration = errors.New("StopIteration")
 
 // compacts staging dir: moves info and data files to tar
 func CompactStaging(realm string, onChange NotifyFunc) error {
-	//TODO: lock dir!
 	conf, err := ReadConf("", realm)
 	if err != nil {
 		return err
 	}
+	//TODO: lock dir!
 	n := DeDup(conf.StagingDir, conf.ContentHash)
 	logger.Infof("DeDup: %d", n)
 
@@ -92,97 +90,6 @@ func CompactStaging(realm string, onChange NotifyFunc) error {
 	logger.Info("indices compacted successfully")
 	return nil
 }
-
-// deduplication: replace data with a symlink to a previous data with the same contant-hash-...
-func DeDup(path string, hash string) int {
-	//TODO: lock dir!
-	n := 0
-	hashes := make(map[string][]fElt, 16)
-	primals := make(map[string][]string, 16)
-	var hamster listDirFunc = func(elt fElt) error {
-		logger.Tracef("%s sl? %s lo=%s", elt.contentHash, elt.isSymlink, FindLinkOrigin(elt.dataFn))
-		if elt.contentHash == "" {
-			return nil
-		} else if elt.isSymlink {
-			if prim, ok := primals[elt.contentHash]; !ok {
-				primals[elt.contentHash] = []string{elt.dataFnOrig}
-			} else {
-				primals[elt.contentHash] = append(prim, elt.dataFnOrig)
-			}
-		} else if other, ok := hashes[elt.contentHash]; ok {
-			hashes[elt.contentHash] = append(other, elt)
-		} else {
-			hashes[elt.contentHash] = []fElt{elt}
-		}
-		return nil
-	}
-	if err := listDirMap(path, hash, hamster); err != nil {
-		logger.Errorf("error listing %s: %s", path, err)
-		return 0
-	}
-	//logger.Printf("hashes=%s", hashes)
-	//logger.Printf("primals=%s", primals)
-	var p int
-	// TODO: primals for first in hashes
-	for _, elts := range hashes {
-		other := fElt{}
-		for _, elt := range elts {
-			if prim, ok := primals[elt.contentHash]; ok {
-				contains := false
-				for _, df := range prim {
-					if df == elt.dataFn {
-						contains = true
-						break
-					}
-				}
-				if contains {
-					continue
-				}
-			}
-			if other.dataFn == "" {
-				other = elt
-				continue
-			}
-			if err := os.Remove(elt.dataFn); err != nil {
-				logger.Warnf("cannot remove %s: %s", elt.dataFn, err)
-			} else {
-				linkfn := elt.dataFn
-				dstfn := other.dataFn
-				if filepath.Dir(dstfn) == filepath.Dir(linkfn) {
-					dstfn = filepath.Base(dstfn)
-				} else {
-					if dstfn, err = filepath.Rel(filepath.Dir(linkfn), dstfn); err != nil {
-						logger.Warn("no rel path for dstfn: ", err)
-					}
-				}
-				p = len(linkfn) - 1
-				if linkfn[p:p+len(SuffData)] == SuffData {
-				} else {
-					p = strings.LastIndex(linkfn, SuffData)
-				}
-				linkfn = linkfn[:p] + SuffLink
-				logger.Debugf("creating symlink from %s to %s", linkfn, filepath.Base(other.dataFn))
-				if err := os.Symlink(filepath.Base(other.dataFn), linkfn); err != nil {
-					logger.Warnf("cannot create symlink %s for %s: %s", elt.dataFn, other.dataFn, err)
-					os.Exit(1)
-				} else {
-					n++
-				}
-			}
-		}
-	}
-	return n
-}
-
-type fElt struct {
-	info        Info
-	infoFn      string
-	dataFn      string
-	contentHash string
-	isSymlink   bool
-	dataFnOrig  string
-}
-type listDirFunc func(fElt) error
 
 func uuidKey(key string) []byte {
 	uuid, err := UUIDFromString(key)
@@ -369,99 +276,6 @@ func harvestSymlinks(path string) (map[string][]fElt, error) {
 		}
 	}
 	return links, nil
-}
-
-func listDirMap(path string, hash string, hamster listDirFunc) error {
-	possibleEndings := []string{SuffData, SuffLink}
-	dh, err := os.Open(path)
-	if err != nil {
-		logger.Criticalf("cannot open dir %s: %s", path, err)
-		os.Exit(1)
-	}
-	defer dh.Close()
-	var (
-		info, emptyInfo Info
-		elt, emptyElt   fElt
-	)
-	emptyElt.isSymlink = false
-	buf := make([]fElt, 0)
-	for {
-		keyfiles, err := dh.Readdir(1024)
-		if err != nil {
-			if err != io.EOF {
-				logger.Errorf("cannot list dir %s: %s", path, err)
-			}
-			break
-		}
-		for _, fi := range keyfiles {
-			bn := fi.Name()
-			if !strings.HasSuffix(bn, SuffInfo) || !fileExists(path+"/"+bn) {
-				continue
-			}
-			info, elt = emptyInfo, emptyElt
-			elt.infoFn = path + "/" + bn
-			// bn := BaseName(fn)
-			info.Key = bn[:len(bn)-1]
-			if ifh, err := os.Open(elt.infoFn); err == nil {
-				info, err = ReadInfo(ifh)
-				ifh.Close()
-				if err != nil {
-					logger.Errorf("cannot read info from %s: %s", elt.infoFn, err)
-					continue
-				}
-			} else {
-				logger.Errorf("cannot read info from %s: %s", elt.infoFn, err)
-				continue
-			}
-
-			pref := path + "/" + info.Key
-			if fileExists(pref + SuffLink) {
-				elt.dataFn = pref + SuffLink
-				elt.isSymlink = true
-			} else {
-				// pref += SuffData
-				for _, end := range possibleEndings {
-					// logger.Printf("checking %s: %s", pref + end, fileExists(pref+end))
-					if fileExists(pref + end) {
-						elt.dataFn = pref + end
-						break
-					}
-				}
-				if elt.dataFn == "" {
-					// logger.Printf("cannot find data file for %s", fn)
-					continue
-				}
-			}
-			elt.info = info
-			if hash != "" {
-				elt.contentHash = info.Get(InfoPref + "Content-" + hash)
-			}
-			if elt.isSymlink {
-				elt.dataFnOrig = FindLinkOrigin(elt.dataFn)
-				buf = append(buf, elt)
-			} else {
-				if err = hamster(elt); err != nil {
-					if err == stopIteration {
-						break
-					} else {
-						logger.Errorf("error with %s: %s", elt, err)
-						return err
-					}
-				}
-			}
-		}
-	}
-	for _, elt := range buf {
-		if err = hamster(elt); err != nil {
-			if err == stopIteration {
-				break
-			} else {
-				logger.Errorf("error with %s: %s", elt, err)
-				return err
-			}
-		}
-	}
-	return nil
 }
 
 // appends file to tar
