@@ -439,11 +439,15 @@ func findAtStaging(uuid UUID, path string) (info Info, reader io.Reader, err err
 			}
 			if suffix == SuffLink {
 				fn = FindLinkOrigin(fn)
+				if !filepath.IsAbs(fn) {
+					fn = path + "/" + fn
+				}
 				// suffix = fn[strings.LastIndex(fn, "#"):]
 				ifn := fn[:len(fn)-1] + "!"
 				ifh_o, err := os.Open(ifn)
 				if err != nil {
-					logger.Error("fintAtStaging(", uuid, ") symlink ", ifn, " error: ", err)
+					logger.Errorf("findAtStaging(%s) symlink %s: %s",
+						uuid, ifn, err)
 					return info, nil, err
 				}
 				info_o, err := ReadInfo(ifh_o)
