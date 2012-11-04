@@ -26,6 +26,7 @@ import (
 	"github.com/tgulacsi/go-cdb"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -53,6 +54,7 @@ func CompactStaging(realm string, onChange NotifyFunc) error {
 		}
 		logger.Tracef("elt=%s => size=%d", elt, size)
 		if size >= conf.TarThreshold {
+			logger.Infof("size=%d >= %d", size, conf.TarThreshold)
 			uuid, err := NewUUID()
 			if err != nil {
 				return err
@@ -78,6 +80,7 @@ func CompactStaging(realm string, onChange NotifyFunc) error {
 		}
 		return nil
 	}
+	logger.Info("size of remainder=", size)
 	if err = listDirMap(conf.StagingDir, conf.ContentHash, hamster); err != nil {
 		logger.Error("error compacting staging: ", err)
 		return err
@@ -128,9 +131,16 @@ func CreateTar(tarfn string, dirname string, sizeLimit uint64) error {
 		logger.Error("cannot read symlinks beforehand: ", err)
 		return err
 	}
+	// logger.Info("symlinks=", symlinks)
+	// if len(symlinks) == 0 {
+	// 	os.Exit(5)
+	// }
 
 	var hamster listDirFunc = func(elt fElt) error {
 		// logger.Printf("fn=%s -> key=%s ?%s", fn, key, isInfo)
+		if elt.isSymlink {
+			return nil
+		}
 		if elt.info.Key != "" {
 			elt.info.Ipos = pos
 			_, pos, err = appendFile(tw, fh, elt.infoFn)
@@ -138,45 +148,31 @@ func CreateTar(tarfn string, dirname string, sizeLimit uint64) error {
 				logger.Criticalf("cannot append %s", elt.infoFn)
 				os.Exit(1)
 			}
-			if elt.isSymlink {
-				linkpos, ok := links[elt.dataFnOrig]
+			elt.info.Dpos = pos
+			links[elt.dataFn] = pos
+			_, pos, err = appendFile(tw, fh, elt.dataFn)
+			if err != nil {
+				logger.Criticalf("cannot append %s", elt.dataFn)
+				os.Exit(1)
+			}
+
+			for _, sym := range symlinks[elt.dataFn] {
+				linkpos, ok := links[sym.dataFnOrig]
+				logger.Debugf("adding %s (symlink of %s) linkpos? %s",
+					sym, elt.dataFn, ok)
 				if !ok {
-					buf = append(buf, elt)
+					buf = append(buf, sym)
 					return nil
 				}
-				elt.info.Dpos = linkpos
-				_, pos, err = appendLink(tw, fh, elt.dataFn)
+				sym.info.Dpos = linkpos
+				_, pos, err = appendLink(tw, fh, sym.dataFn)
 				if err != nil {
-					logger.Criticalf("cannot append %s", elt.dataFn)
+					logger.Criticalf("cannot append %s", sym.dataFn)
 					os.Exit(1)
 				}
-			} else {
-				elt.info.Dpos = pos
-				links[elt.dataFn] = pos
-				_, pos, err = appendFile(tw, fh, elt.dataFn)
-				if err != nil {
-					logger.Criticalf("cannot append %s", elt.dataFn)
-					os.Exit(1)
-				}
-
-				for _, sym := range symlinks[elt.dataFn] {
-					linkpos, ok := links[sym.dataFnOrig]
-					logger.Debugf("adding %s (symlink of %s) linkpos? %s",
-						sym, elt.dataFn, ok)
-					if !ok {
-						buf = append(buf, sym)
-						return nil
-					}
-					sym.info.Dpos = linkpos
-					_, pos, err = appendLink(tw, fh, sym.dataFn)
-					if err != nil {
-						logger.Criticalf("cannot append %s", sym.dataFn)
-						os.Exit(1)
-					}
-					adder(cdb.Element{uuidKey(sym.info.Key), sym.info.Bytes()})
-				}
-				delete(symlinks, elt.dataFn)
+				adder(cdb.Element{uuidKey(sym.info.Key), sym.info.Bytes()})
 			}
+			delete(symlinks, elt.dataFn)
 			// c <- cdb.Element{StrToBytes(elt.info.Key), elt.info.Bytes()}
 			adder(cdb.Element{uuidKey(elt.info.Key), elt.info.Bytes()})
 		}
@@ -252,7 +248,12 @@ func harvestSymlinks(path string) (map[string][]fElt, error) {
 			bn := fi.Name()
 			linkpath = path + "/" + bn
 			origin = FindLinkOrigin(linkpath)
-			if !(strings.HasSuffix(bn, SuffLink) && origin != linkpath && fileExists(origin)) {
+			if !filepath.IsAbs(origin) {
+				origin = path + "/" + origin
+			}
+			logger.Debugf("bn=%s origin=%s", bn, origin)
+			if !(strings.HasSuffix(bn, SuffLink) && origin != linkpath &&
+				fileExists(origin)) {
 				continue
 			}
 			bn = bn[:len(bn)-1]

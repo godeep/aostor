@@ -43,7 +43,7 @@ func DeDup(path string, hash string) int {
 		//only one primal should exist!
 		if elt.isSymlink {
 			if prim, ok := primals[elt.contentHash]; ok {
-				logger.Debugf("prim=%s orig=%s", prim, elt.dataFnOrig)
+				logger.Tracef("prim=%s orig=%s", prim, elt.dataFnOrig)
 				if same, e := SameFile(elt.dataFnOrig, prim); e != nil {
 					logger.Errorf("cannot check equivalence of %s and %s: %s", elt.dataFnOrig, prim, e)
 					if os.IsNotExist(e) {
