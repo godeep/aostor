@@ -54,7 +54,7 @@ func CompactStaging(realm string, onChange NotifyFunc) error {
 		}
 		logger.Tracef("elt=%s => size=%d", elt, size)
 		if size >= conf.TarThreshold {
-			logger.Infof("size=%d >= %d", size, conf.TarThreshold)
+			logger.Debugf("size=%d >= %d", size, conf.TarThreshold)
 			uuid, err := NewUUID()
 			if err != nil {
 				return err
@@ -251,7 +251,7 @@ func harvestSymlinks(path string) (map[string][]fElt, error) {
 			if !filepath.IsAbs(origin) {
 				origin = path + "/" + origin
 			}
-			logger.Debugf("bn=%s origin=%s", bn, origin)
+			logger.Tracef("bn=%s origin=%s", bn, origin)
 			if !(strings.HasSuffix(bn, SuffLink) && origin != linkpath &&
 				fileExists(origin)) {
 				continue
@@ -348,11 +348,11 @@ func cleanupStaging(path string, tarfn string) error {
 			return err
 		}
 		base := path + "/" + uuid.String()
-		logger.Debugf("base %s exists? %s", base, fileExists(base+SuffInfo))
+		// logger.Debugf("base %s exists? %s", base, fileExists(base+SuffInfo))
 		if fileExists(base + SuffInfo) {
 			for _, end := range endings {
 				err = os.Remove(base + end)
-				logger.Debugf("Remove(%s): %s", base+end, err)
+				logger.Tracef("Remove(%s): %s", base+end, err)
 				if err == nil {
 					err = os.Remove(base + SuffInfo)
 					if err != nil {
