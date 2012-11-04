@@ -24,6 +24,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/tgulacsi/go-cdb"
+	"github.com/tgulacsi/go-locking"
 	"io"
 	"os"
 	"path/filepath"
@@ -33,15 +34,22 @@ import (
 type NotifyFunc func()
 
 var stopIteration = errors.New("StopIteration")
+var AlreadyLocked = errors.New("AlreadyLocked")
 
-// compacts staging dir: moves info and data files to tar
-func CompactStaging(realm string, onChange NotifyFunc) error {
+// compacts staging dir: moves info and data files to tar; calls CompactIndices
+func Compact(realm string, onChange NotifyFunc) error {
 	conf, err := ReadConf("", realm)
 	if err != nil {
 		return err
 	}
-	//TODO: lock dir!
-	n := DeDup(conf.StagingDir, conf.ContentHash)
+	if locks, err := locking.FLockDirs(conf.IndexDir, conf.StagingDir); err != nil {
+		logger.Error("cannot lock dir: ", err)
+		return err
+	} else {
+		defer locks.Unlock()
+	}
+
+	n := DeDup(conf.StagingDir, conf.ContentHash, true)
 	logger.Infof("DeDup: %d", n)
 
 	size := uint64(0)
@@ -61,7 +69,7 @@ func CompactStaging(realm string, onChange NotifyFunc) error {
 			}
 			tarfn := realm + "-" + strNow()[:15] + "-" + uuid.String() + ".tar"
 			logger.Info("creating ", tarfn)
-			if err = CreateTar(conf.TarDir+"/"+tarfn, conf.StagingDir, conf.TarThreshold); err != nil {
+			if err = CreateTar(conf.TarDir+"/"+tarfn, conf.StagingDir, conf.TarThreshold, true); err != nil {
 				return err
 			}
 			tarfn_a := conf.TarDir + "/" + tarfn
@@ -86,7 +94,7 @@ func CompactStaging(realm string, onChange NotifyFunc) error {
 		return err
 	}
 	logger.Info("staging compacted successfully")
-	if err = CompactIndices(realm, 0, onChange); err != nil {
+	if err = CompactIndices(realm, 0, onChange, true); err != nil {
 		logger.Error("error compacting indices: ", err)
 		return err
 	}
@@ -104,7 +112,16 @@ func uuidKey(key string) []byte {
 }
 
 // Copies files from the given directory into a given tar file
-func CreateTar(tarfn string, dirname string, sizeLimit uint64) error {
+func CreateTar(tarfn string, dirname string, sizeLimit uint64, alreadyLocked bool) error {
+	if !alreadyLocked {
+		if locks, err := locking.FLockDirs(dirname); err != nil {
+			logger.Error("cannot lock dir: ", err)
+			return err
+		} else {
+			defer locks.Unlock()
+		}
+	}
+
 	tw, fh, pos, err := OpenForAppend(tarfn)
 	//fh, err := os.OpenFile(tarfn, os.O_APPEND|os.O_CREATE, 0640)
 	if err != nil {

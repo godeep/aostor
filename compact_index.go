@@ -24,6 +24,7 @@ import (
 	//"io"
 	"errors"
 	"github.com/tgulacsi/go-cdb"
+	"github.com/tgulacsi/go-locking"
 	"os"
 	"path/filepath"
 	"sort"
@@ -39,11 +40,19 @@ const (
 var checkMerge bool = false
 
 //Compact compacts the index cdbs
-func CompactIndices(realm string, level uint, onChange func()) error {
+func CompactIndices(realm string, level uint, onChange func(), alreadyLocked bool) error {
 	conf, err := ReadConf("", realm)
 	if err != nil {
 		return err
 	}
+	if !alreadyLocked {
+		if locks, err := locking.FLockDirs(conf.IndexDir); err != nil {
+			return err
+		} else {
+			defer locks.Unlock()
+		}
+	}
+
 	var n int
 	for level < 100 && fileExists(conf.IndexDir+"/"+fmt.Sprintf("L%02d")) {
 		n, err = compactLevel(level, conf.IndexDir, conf.IndexThreshold)

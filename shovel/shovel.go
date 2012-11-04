@@ -72,7 +72,7 @@ func main() {
 
 	if *todo_tar {
 		tarfn, dirname := flag.Arg(0), flag.Arg(1)
-		if err := aostor.CreateTar(tarfn, dirname, 0); err != nil {
+		if err := aostor.CreateTar(tarfn, dirname, 0, false); err != nil {
 			fmt.Printf("ERROR shoveling %s to %s: %s", tarfn, dirname, err)
 		} else {
 			fmt.Println("OK")
@@ -80,7 +80,7 @@ func main() {
 		}
 	} else if *todo_realm != "" {
 		realm := *todo_realm
-		if err := aostor.CompactStaging(realm, onChange); err != nil {
+		if err := aostor.Compact(realm, onChange); err != nil {
 			fmt.Printf("ERROR compacting %s: %s", realm, err)
 		} else {
 			if changed {
