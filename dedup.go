@@ -30,7 +30,6 @@ import (
 // deduplication: replace data with a symlink to a previous data with the same contant-hash-...
 func DeDup(path string, hash string, alreadyLocked bool) int {
 	var err error
-	//TODO: lock dir!
 	if !alreadyLocked {
 		if locks, err := locking.FLockDirs(path); err != nil {
 			logger.Errorf("cannot create lock for %s: %s", path, err)

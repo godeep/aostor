@@ -52,47 +52,56 @@ func Compact(realm string, onChange NotifyFunc) error {
 	n := DeDup(conf.StagingDir, conf.ContentHash, true)
 	logger.Infof("DeDup: %d", n)
 
+	var is, ds int64
 	size := uint64(0)
+
 	var hamster listDirFunc = func(elt fElt) error {
-		size += inBs(fileSize(elt.infoFn))
+		is, ds = fileSize(elt.infoFn), int64(0)
 		if elt.isSymlink {
-			size += BS
+			ds = int64(1)
 		} else {
-			size += inBs(fileSize(elt.dataFn))
+			ds = fileSize(elt.dataFn)
 		}
-		size += BS
-		logger.Tracef("elt=%s => size=%d", elt, size)
+		size += BS + inBs(is) + BS + inBs(ds)
+		logger.Tracef("size=%d = %0.3fMb", size, float64(size)/1024.0/1024.0)
 		if size >= conf.TarThreshold {
-			logger.Debugf("size=%d >= %d", size, conf.TarThreshold)
-			uuid, err := NewUUID()
-			if err != nil {
-				return err
-			}
-			tarfn := realm + "-" + strNow()[:15] + "-" + uuid.String() + ".tar"
-			logger.Info("creating ", tarfn)
-			if err = CreateTar(conf.TarDir+"/"+tarfn, conf.StagingDir, conf.TarThreshold, true); err != nil {
-				return err
-			}
-			tarfn_a := conf.TarDir + "/" + tarfn
-			if err = os.Symlink(tarfn_a+".cdb",
-				conf.IndexDir+"/L00/"+tarfn+".cdb"); err != nil {
-				return err
-			}
-			if err = cleanupStaging(conf.StagingDir, tarfn_a); err != nil {
-				return err
-			}
-			if onChange != nil {
-				onChange()
-			}
-			// return stopIteration
-			size = uint64(0)
+			return stopIteration
 		}
 		return nil
 	}
-	logger.Info("size of remainder=", size)
-	if err = listDirMap(conf.StagingDir, conf.ContentHash, hamster); err != nil {
-		logger.Error("error compacting staging: ", err)
-		return err
+
+	for {
+		size = uint64(0)
+
+		if err = listDirMap(conf.StagingDir, conf.ContentHash, hamster); err != nil {
+			logger.Error("error compacting staging: ", err)
+			return err
+		}
+
+		logger.Debugf("size=%d >= %d", size, conf.TarThreshold)
+		if size < conf.TarThreshold {
+			break
+		}
+		uuid, err := NewUUID()
+		if err != nil {
+			return err
+		}
+		tarfn := realm + "-" + strNow()[:15] + "-" + uuid.String() + ".tar"
+		logger.Info("creating ", tarfn)
+		if err = CreateTar(conf.TarDir+"/"+tarfn, conf.StagingDir, conf.TarThreshold, true); err != nil {
+			return err
+		}
+		tarfn_a := conf.TarDir + "/" + tarfn
+		if err = os.Symlink(tarfn_a+".cdb",
+			conf.IndexDir+"/L00/"+tarfn+".cdb"); err != nil {
+			return err
+		}
+		if err = cleanupStaging(conf.StagingDir, tarfn_a); err != nil {
+			return err
+		}
+		if onChange != nil {
+			onChange()
+		}
 	}
 	logger.Info("staging compacted successfully")
 	if err = CompactIndices(realm, 0, onChange, true); err != nil {
@@ -177,7 +186,7 @@ func CreateTar(tarfn string, dirname string, sizeLimit uint64, alreadyLocked boo
 			for _, sym := range symlinks[elt.dataFn] {
 				linkpos, ok := links[sym.dataFnOrig]
 				logger.Debugf("adding %s (symlink of %s) linkpos? %s",
-					sym, elt.dataFn, ok)
+					sym.info.Key, elt.dataFn, ok)
 				if !ok {
 					buf = append(buf, sym)
 					return nil
@@ -370,7 +379,7 @@ func cleanupStaging(path string, tarfn string) error {
 		if fileExists(base + SuffInfo) {
 			for _, end := range endings {
 				err = os.Remove(base + end)
-				logger.Tracef("Remove(%s): %s", base+end, err)
+				logger.Debugf("Remove(%s): %s", base+end, err)
 				if err == nil {
 					err = os.Remove(base + SuffInfo)
 					if err != nil {
