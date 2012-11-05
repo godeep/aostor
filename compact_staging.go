@@ -53,6 +53,7 @@ func Compact(realm string, onChange NotifyFunc) error {
 	logger.Infof("DeDup: %d", n)
 
 	var is, ds int64
+	tthresh_mb := float64(conf.TarThreshold) / 1024 / 1024
 	size := uint64(0)
 
 	var hamster listDirFunc = func(elt fElt) error {
@@ -78,7 +79,7 @@ func Compact(realm string, onChange NotifyFunc) error {
 			return err
 		}
 
-		logger.Debugf("size=%d >= %d", size, conf.TarThreshold)
+		logger.Debugf("size=%.03fMb >?= %.03fMb", float64(size)/1024/1024, tthresh_mb)
 		if size < conf.TarThreshold {
 			break
 		}
