@@ -60,6 +60,7 @@ func Compact(realm string, onChange NotifyFunc) error {
 		} else {
 			size += inBs(fileSize(elt.dataFn))
 		}
+		size += BS
 		logger.Tracef("elt=%s => size=%d", elt, size)
 		if size >= conf.TarThreshold {
 			logger.Debugf("size=%d >= %d", size, conf.TarThreshold)
@@ -102,14 +103,14 @@ func Compact(realm string, onChange NotifyFunc) error {
 	return nil
 }
 
-func uuidKey(key string) []byte {
-	uuid, err := UUIDFromString(key)
-	if err != nil {
-		logger.Errorf("cannot convert ", key, " to uuid: ", err)
-		return []byte(key)
-	}
-	return uuid.Bytes()
-}
+// func uuidKey(key string) []byte {
+// 	uuid, err := UUIDFromString(key)
+// 	if err != nil {
+// 		logger.Errorf("cannot convert ", key, " to uuid: ", err)
+// 		return []byte(key)
+// 	}
+// 	return uuid.Bytes()
+// }
 
 // Copies files from the given directory into a given tar file
 func CreateTar(tarfn string, dirname string, sizeLimit uint64, alreadyLocked bool) error {
@@ -158,7 +159,7 @@ func CreateTar(tarfn string, dirname string, sizeLimit uint64, alreadyLocked boo
 		if elt.isSymlink {
 			return nil
 		}
-		if elt.info.Key != "" {
+		if !elt.info.Key.IsEmpty() {
 			elt.info.Ipos = pos
 			_, pos, err = appendFile(tw, fh, elt.infoFn)
 			if err != nil {
@@ -187,11 +188,11 @@ func CreateTar(tarfn string, dirname string, sizeLimit uint64, alreadyLocked boo
 					logger.Criticalf("cannot append %s", sym.dataFn)
 					os.Exit(1)
 				}
-				adder(cdb.Element{uuidKey(sym.info.Key), sym.info.Bytes()})
+				adder(cdb.Element{sym.info.Key.Bytes(), sym.info.Bytes()})
 			}
 			delete(symlinks, elt.dataFn)
 			// c <- cdb.Element{StrToBytes(elt.info.Key), elt.info.Bytes()}
-			adder(cdb.Element{uuidKey(elt.info.Key), elt.info.Bytes()})
+			adder(cdb.Element{elt.info.Key.Bytes(), elt.info.Bytes()})
 		}
 		// logger.Tracef("buf=%s", buf)
 		if pos > 0 && pos > sizeLimit {
@@ -222,7 +223,7 @@ func CreateTar(tarfn string, dirname string, sizeLimit uint64, alreadyLocked boo
 			os.Exit(1)
 		}
 		// logger.Debugf("adding ",keyb," to ",)
-		adder(cdb.Element{uuidKey(elt.info.Key), elt.info.Bytes()})
+		adder(cdb.Element{elt.info.Key.Bytes(), elt.info.Bytes()})
 	}
 
 	// iw.Close()

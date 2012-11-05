@@ -156,13 +156,16 @@ type PLoad struct {
 func getPayload() (PLoad, error) {
 	payload_lock.Lock()
 	defer payload_lock.Unlock()
-	n, err := io.CopyN(payloadbuf, urandom, 8)
+	n, err := io.CopyN(payloadbuf, urandom, 128)
 	if err != nil {
 		// payload_lock.Unlock()
 		log.Panicf("cannot read %s: %s", urandom, err)
 	}
 	buf := payloadbuf.Bytes()
 	length := len(buf)
+	if length > 65 {
+		payloadbuf.Write(buf[length-65:])
+	}
 	if length == 0 {
 		log.Fatalf("zero payload (length=%d read=%d)", length, n)
 	}
@@ -184,20 +187,21 @@ func getPayload() (PLoad, error) {
 func CheckedUpload(baseUrl string, payload PLoad, dump bool) (string, error) {
 	key, err := Upload(baseUrl, payload, dump)
 	if err != nil {
-		return string(key), err
+		return key.String(), err
 	}
-	if key != nil {
-		return Get(baseUrl, string(key), payload)
+	if !key.IsEmpty() {
+		return Get(baseUrl, key, payload)
 	}
 	return "", nil
 }
 
-func Upload(baseUrl string, payload PLoad, dump bool) ([]byte, error) {
+func Upload(baseUrl string, payload PLoad, dump bool) (key aostor.UUID, err error) {
 	// log.Printf("body:\n%v", reqbuf)
 
-	req, err := http.NewRequest("POST", baseUrl+"/up", bytes.NewReader(payload.encoded))
-	if err != nil {
-		return nil, err
+	req, e := http.NewRequest("POST", baseUrl+"/up", bytes.NewReader(payload.encoded))
+	if e != nil {
+		err = e
+		return
 	}
 	req.ContentLength = int64(len(payload.encoded))
 	req.Header.Set("Content-Type", payload.ct)
@@ -209,23 +213,24 @@ func Upload(baseUrl string, payload PLoad, dump bool) ([]byte, error) {
 			log.Printf("\n>>>>>>\nrequest:\n%v", buf)
 		}
 	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
+	resp, e := http.DefaultClient.Do(req)
+	if e != nil {
 		buf, e := httputil.DumpRequestOut(req, true)
 		if e != nil {
 			log.Printf("cannot dump request %v: %s", req, e)
-			return nil, nil
+			return aostor.UUID{}, nil
 		} else {
 			log.Printf("\n>>>>>>\nrequest:\n%v", buf)
 		}
 	}
-	if err != nil {
-		return nil, err
+	if e != nil {
+		err = e
+		return
 	}
 	defer resp.Body.Close()
-	key := make([]byte, 32)
-	n, err := resp.Body.Read(key)
-	if err != nil || dump {
+	buf := make([]byte, 32)
+	n, e := resp.Body.Read(buf)
+	if e != nil || dump {
 		buf, e := httputil.DumpResponse(resp, true)
 		if e != nil {
 			log.Printf("cannot dump response %v: %s", resp, e)
@@ -233,18 +238,22 @@ func Upload(baseUrl string, payload PLoad, dump bool) ([]byte, error) {
 			log.Printf("\n<<<<<<\nresponse:\n%v", buf)
 		}
 	}
-	if err != nil {
-		return nil, err
+	if e == nil {
+		key, e = aostor.UUIDFromBytes(buf[:n])
 	}
-	if n != 32 || bytes.Equal(bytes.ToUpper(key[:3]), []byte{'E', 'R', 'R'}) {
-		return nil, fmt.Errorf("bad response: %s", key)
+	if e != nil {
+		err = e
+		return
+	}
+	if n != 2*aostor.UUIDLength || bytes.Equal(bytes.ToUpper(key[:3]), []byte{'E', 'R', 'R'}) {
+		return aostor.UUID{}, fmt.Errorf("bad response: %s", key)
 	}
 	// log.Printf("%s", key)
-	return key, nil
+	return
 }
 
-func Get(baseUrl string, key string, payload PLoad) (url string, err error) {
-	url = baseUrl + "/" + key
+func Get(baseUrl string, key aostor.UUID, payload PLoad) (url string, err error) {
+	url = baseUrl + "/" + key.String()
 	resp, e := http.Get(url)
 	if resp != nil && resp.Body != nil {
 		defer resp.Body.Close()

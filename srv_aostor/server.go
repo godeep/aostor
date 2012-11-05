@@ -117,7 +117,7 @@ func baseHandler(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			logger.Print(err)
 			http.Error(w, fmt.Sprintf("404 Page Not Found (%s): %s", path, err), 404)
-		} else if !(info.Key != "" && data != nil) {
+		} else if !(!info.Key.IsEmpty() && data != nil) {
 			logger.Printf("NULL answer")
 			http.Error(w, fmt.Sprintf("404 Page Not Found (%s)", path), 404)
 		} else {
@@ -240,8 +240,10 @@ func upHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("ERROR: %s", err), 500)
 		return
 	}
-	w.Header().Add(aostor.InfoPref+"Key", key)
-	w.Write(aostor.StrToBytes(key))
+	w.Header().Add(aostor.InfoPref+"Key", key.String())
+	w.Header().Add("Content-Location", "/"+realm+"/"+key.String())
+	// logger.Printf("response headers: %s", w.Header())
+	w.Write([]byte(key.String()))
 }
 
 func indexHandler(w http.ResponseWriter, r *http.Request) {

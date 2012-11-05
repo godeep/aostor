@@ -38,7 +38,7 @@ const InfoPref = "X-Aostor-" // prefix of specific headers
 var MissingFilenameError = errors.New("Filename is missing!")
 
 type Info struct {
-	Key        string
+	Key        UUID
 	Ipos, Dpos uint64
 	m          map[string]string
 }
@@ -70,11 +70,33 @@ func (info *Info) Add(key string, val string) {
 	if val != "" && strings.HasPrefix(k, InfoPref) {
 		switch k[len(InfoPref):] {
 		case "Id":
-			info.Key = val
+			info.Key, _ = UUIDFromString(val)
 		case "Ipos":
 			info.Ipos, _ = strconv.ParseUint(val, 0, 64)
 		case "Dpos":
 			info.Dpos, _ = strconv.ParseUint(val, 0, 64)
+		}
+	}
+}
+
+// adds a key (byte)
+func (info *Info) AddBytes(key, val []byte) {
+	k := CanonicalHeaderKey(key)
+	val = bytes.TrimSpace(val)
+
+	if info.m == nil {
+		info.m = make(map[string]string, 1)
+	}
+	info.m[string(k)] = string(val)
+	if val != nil && bytes.HasPrefix(k, []byte(InfoPref)) {
+		k = k[len(InfoPref):]
+		switch {
+		case bytes.Equal(k, []byte("Id")):
+			info.Key, _ = UUIDFromBytes(val)
+		case bytes.Equal(k, []byte("Ipos")):
+			info.Ipos, _ = strconv.ParseUint(string(val), 0, 64)
+		case bytes.Equal(k, []byte("Dpos")):
+			info.Dpos, _ = strconv.ParseUint(string(val), 0, 64)
 		}
 	}
 }
@@ -132,6 +154,29 @@ func ReadInfo(r io.Reader) (info Info, err error) {
 	return
 }
 
+func InfoFromBytes(b []byte) (info Info, err error) {
+	if info.m == nil {
+		info.m = make(map[string]string, 3)
+	}
+	var off, p int
+	var line []byte
+	for err == nil {
+		p = bytes.IndexByte(b[off:], 10) //'\n'
+		if p < 0 {
+			break
+		}
+		line = b[off : off+p]
+		off += p + 1
+
+		p = bytes.IndexByte(line, 58) //':'
+		if p < 0 {
+			continue
+		}
+		info.AddBytes(line[:p], line[p+1:])
+	}
+	return
+}
+
 // returns a new Reader and the length for wire format of Info
 func (info *Info) NewReader() (io.Reader, int) {
 	buf := make([]string, len(info.m)+3)
@@ -166,8 +211,8 @@ func (info *Info) Bytes() []byte {
 
 // prepares info for writing out
 func (info *Info) Prepare() error {
-	if info.Key != "" {
-		info.Add(InfoPref+"Id", info.Key)
+	if !info.Key.IsEmpty() {
+		info.Add(InfoPref+"Id", info.Key.String())
 		//logger.Printf("added %s => %+v info.m nil? %s", info.Key, info.m, info.m == nil)
 	}
 	if info.Ipos > 0 {
@@ -204,12 +249,14 @@ func (info *Info) Prepare() error {
 
 // convert string to []byte
 func StrToBytes(str string) []byte {
-	return bytes.NewBufferString(str).Bytes()
+	// return bytes.NewBufferString(str).Bytes()
+	return []byte(str)
 }
 
 // converts []byte to string
 func BytesToStr(buf []byte) string {
-	return bytes.NewBuffer(buf).String()
+	// return bytes.NewBuffer(buf).String()
+	return string(buf)
 }
 
 // basename for Windows and Unix (strips everything before / or \\
@@ -219,4 +266,8 @@ func BaseName(fn string) string {
 		fn = fn[p+1:]
 	}
 	return fn
+}
+
+func CanonicalHeaderKey(key []byte) []byte {
+	return bytes.Title(key)
 }

@@ -16,16 +16,21 @@
 
 package main
 
+import _ "net/http/pprof"
+
 import (
 	"flag"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
+	// "runtime/pprof"
 	"syscall"
 	"unosoft.hu/aostor"
 )
 
 var logger = aostor.GetLogger()
+var memprofile = flag.String("memprofile", "", "write memory profile to this file")
 
 func main() {
 	defer aostor.FlushLog()
@@ -70,6 +75,10 @@ func main() {
 		}
 	}
 
+	go func() {
+		log.Println(http.ListenAndServe("localhost:6500", nil))
+	}()
+
 	if *todo_tar {
 		tarfn, dirname := flag.Arg(0), flag.Arg(1)
 		if err := aostor.CreateTar(tarfn, dirname, 0, false); err != nil {
@@ -96,4 +105,13 @@ prg -t tar dir [-p pid]
 prg -r realm [-p pid]
 `)
 	}
+
+	// if *memprofile != "" {
+	// 	f, err := os.Create(*memprofile)
+	// 	if err != nil {
+	// 		log.Fatal(err)
+	// 	}
+	// 	pprof.WriteHeapProfile(f)
+	// 	f.Close()
+	// }
 }

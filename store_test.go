@@ -55,14 +55,14 @@ func init() {
 	}
 }
 
-func testPut() (string, error) {
+func testPut() (UUID, error) {
 	info := Info{}
 	fn := "store_test.go"
 	info.SetFilename(fn, "text/go")
 	data, err := os.Open(fn)
 	if err != nil {
 		logger.Error("cannot open %s: %s", fn, err)
-		return "", err
+		return UUID{}, err
 	}
 	return Put("test", info, data)
 }
@@ -97,7 +97,7 @@ func TestCompact(c *testing.T) {
 			}
 		}
 		//logger.Printf("MAX_CDB_SIZE: %d", MAX_CDB_SIZE)
-		if err := CompactStaging("test", nil); err != nil {
+		if err := Compact("test", nil); err != nil {
 			c.Fatalf("compact staging error: %s", err)
 		}
 		dh, err := os.Open(conf.StagingDir)
@@ -120,7 +120,7 @@ func TestCompact(c *testing.T) {
 			c.Fatalf("cannot list staging dir %s: %s", conf.StagingDir, err)
 		}
 	}
-	if err := CompactIndices("test", 0, nil); err != nil {
+	if err := CompactIndices("test", 0, nil, false); err != nil {
 		c.Fatalf("compact indices error: %s", err)
 	}
 	FillCaches(true)
@@ -130,7 +130,7 @@ func TestCompact(c *testing.T) {
 func TestDeDup(c *testing.T) {
 	testPut()
 	testPut()
-	DeDup(conf.StagingDir, conf.ContentHash)
+	DeDup(conf.StagingDir, conf.ContentHash, false)
 }
 
 func TestCdbMerge(c *testing.T) {

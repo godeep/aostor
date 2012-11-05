@@ -37,25 +37,26 @@ var StoreCompressMethod = "gzip"
 
 var UUIDMaker = uuid.NewRandom
 
+const UUIDLength = 16
+
 // puts file (info + data) into the given realm - returns the key
 // if the key is in info, then uses that
-func Put(realm string, info Info, data io.Reader) (key string, err error) {
+func Put(realm string, info Info, data io.Reader) (key UUID, err error) {
 	if err = info.Prepare(); err != nil {
-		return "", err
+		return UUID{}, err
 	}
 	conf, err := ReadConf("", realm)
 	if err != nil {
 		return
 	}
 
-	if info.Key == "" || fileExists(conf.StagingDir+"/"+key+SuffInfo) {
-		b, err := NewUUID()
+	if info.Key.IsEmpty() || fileExists(conf.StagingDir+"/"+key.String()+SuffInfo) {
+		info.Key, err = NewUUID()
 		if err != nil {
-			return "", err
+			return
 		}
-		info.Key = b.String()
 	}
-	if info.Key == "" {
+	if info.Key.IsEmpty() {
 		logger.Critical("empty key!")
 		return
 	}
@@ -67,7 +68,7 @@ func Put(realm string, info Info, data io.Reader) (key string, err error) {
 
 	// end := compressor.ShorterMethod(StoreCompressMethod)
 	// dfh, err := os.OpenFile(conf.StagingDir+"/"+key+SuffData+end,
-	dfh, err := os.OpenFile(conf.StagingDir+"/"+key+SuffData,
+	dfh, err := os.OpenFile(conf.StagingDir+"/"+key.String()+SuffData,
 		os.O_WRONLY|os.O_CREATE, 0640)
 	if err != nil {
 		return
@@ -94,7 +95,7 @@ func Put(realm string, info Info, data io.Reader) (key string, err error) {
 	info.Add(InfoPref+"Content-"+conf.ContentHash,
 		fmt.Sprintf("%x", hsh.Sum(nil)))
 
-	ifh, err := os.OpenFile(conf.StagingDir+"/"+key+SuffInfo, os.O_WRONLY|os.O_CREATE, 0640)
+	ifh, err := os.OpenFile(conf.StagingDir+"/"+key.String()+SuffInfo, os.O_WRONLY|os.O_CREATE, 0640)
 	if err != nil {
 		return
 	}
@@ -106,13 +107,13 @@ func Put(realm string, info Info, data io.Reader) (key string, err error) {
 	return
 }
 
-type UUID [16]byte
+type UUID [UUIDLength]byte
 
-// returns a hexified 16-byte UUID1
+// returns a hexified UUIDLength-byte UUID1
 func NewUUID() (UUID, error) {
 	var b UUID
 	u := UUIDMaker()
-	for i := 0; i < 16; i++ {
+	for i := 0; i < UUIDLength; i++ {
 		b[i] = u[i]
 	}
 	return b, nil
@@ -124,27 +125,34 @@ func UUIDFromString(text string) (b UUID, err error) {
 		err = e
 		return
 	}
-	for i := 0; i < 16 && i < len(u); i++ {
+	for i := 0; i < UUIDLength && i < len(u); i++ {
 		b[i] = u[i]
 	}
 	return
 }
 func UUIDFromBytes(text []byte) (b UUID, err error) {
-	if len(text) == 32 {
+	if len(text) == 2*UUIDLength {
 		return UUIDFromString(string(text))
 	}
-	for i := 0; i < 16 && i < len(text); i++ {
+	for i := 0; i < UUIDLength && i < len(text); i++ {
 		b[i] = text[i]
 	}
 	return
 }
 
 func (b UUID) String() string {
-	// return fmt.Sprintf("%032x", b)
 	return hex.EncodeToString(b[0:])
 }
 func (b UUID) Bytes() []byte {
 	return b[0:]
+}
+func (b UUID) IsEmpty() bool {
+	for i := 0; i < UUIDLength; i++ {
+		if b[i] != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // A writer which counts bytes written into it

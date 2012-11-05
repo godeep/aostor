@@ -168,9 +168,10 @@ func SameFile(fn1, fn2 string) (bool, error) {
 }
 
 type fElt struct {
-	info        Info
-	infoFn      string
-	dataFn      string
+	info   Info
+	infoFn string
+	dataFn string
+	// contentHash []byte
 	contentHash string
 	isSymlink   bool
 	dataFnOrig  string
@@ -200,6 +201,8 @@ func listDirMap(path string, hash string, hamster listDirFunc) error {
 			}
 			break
 		}
+		infobuf := make([]byte, 8192)
+		var n int
 		for _, fi := range keyfiles {
 			bn := fi.Name()
 			if !strings.HasSuffix(bn, SuffInfo) || !fileExists(path+"/"+bn) {
@@ -208,9 +211,19 @@ func listDirMap(path string, hash string, hamster listDirFunc) error {
 			info, elt = emptyInfo, emptyElt
 			elt.infoFn = path + "/" + bn
 			// bn := BaseName(fn)
-			info.Key = bn[:len(bn)-1]
+			info.Key, err = UUIDFromString(bn[:len(bn)-1])
+			if err != nil {
+				logger.Errorf("cannot treat %s as uuid: %s", bn[:len(bn)-1], err)
+				continue
+			}
 			if ifh, err := os.Open(elt.infoFn); err == nil {
-				info, err = ReadInfo(ifh)
+				if fi, _ := ifh.Stat(); err == nil && fi.Size() <= int64(cap(infobuf)) {
+					if n, err = io.ReadFull(ifh, infobuf[:fi.Size()]); err == nil {
+						info, err = InfoFromBytes(infobuf[:n])
+					}
+				} else {
+					info, err = ReadInfo(ifh)
+				}
 				ifh.Close()
 				if err != nil {
 					logger.Errorf("cannot read info from %s: %s", elt.infoFn, err)
@@ -221,7 +234,7 @@ func listDirMap(path string, hash string, hamster listDirFunc) error {
 				continue
 			}
 
-			pref := path + "/" + info.Key
+			pref := path + "/" + info.Key.String()
 			if fileExists(pref + SuffLink) {
 				elt.dataFn = pref + SuffLink
 				elt.isSymlink = true
