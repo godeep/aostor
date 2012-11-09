@@ -428,15 +428,10 @@ func findAtStaging(uuid UUID, path string) (info Info, reader io.Reader, err err
 	// var suffixes = []string{SuffData + "bz2", SuffData + "gz", SuffLink, SuffData}
 	var suffixes = []string{SuffData, SuffLink}
 	var fn string
-	ct := info.Get("Content-Type")
+	ce := info.Get("Content-Encoding")
 	for _, suffix := range suffixes {
 		fn = path + "/" + uuid.String() + suffix
 		if fileExists(fn) {
-			fh, err := os.Open(fn)
-			if err != nil {
-				logger.Error("cannot open ", fn, ": ", err)
-				return Info{}, nil, err
-			}
 			if suffix == SuffLink {
 				fn = FindLinkOrigin(fn)
 				if !filepath.IsAbs(fn) {
@@ -456,9 +451,14 @@ func findAtStaging(uuid UUID, path string) (info Info, reader io.Reader, err err
 					logger.Error("cannot read symlink info ", ifh_o, ": ", err)
 					return info, nil, err
 				}
-				ct = info_o.Get("Content-Type")
+				ce = info_o.Get("Content-Type")
 			}
-			switch ct {
+			fh, err := os.Open(fn)
+			if err != nil {
+				logger.Error("cannot open ", fn, ": ", err)
+				return Info{}, nil, err
+			}
+			switch ce {
 			case "bz2":
 				reader, err = bzip2.NewReader(fh), nil
 			case "gzip":

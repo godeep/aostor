@@ -73,7 +73,7 @@ func main() {
 			}
 		}(ticker, *hostport)
 	}
-	for i := 1; i < 100; i++ {
+	for i := 90; i < 100; i++ {
 		log.Printf("starting round %d...", i)
 		if err = testhlp.OneRound(srv.Url, i, 100, urlch, i == 1); err != nil {
 			log.Printf("error with round %d: %s", i, err)

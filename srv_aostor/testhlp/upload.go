@@ -63,7 +63,7 @@ func OneRound(baseUrl string, parallel, N int, urlch chan<- string, dump bool) (
 				errch <- fmt.Errorf("error getting payload(%d): %s", i, err)
 				break
 			}
-			for j := rand.Int() % 5; j < 5; j++ {
+			for j := rand.Int() % 15; j < 2; j++ {
 				if url, err = CheckedUpload(baseUrl, payload, dump && bp < 1); err != nil {
 					errch <- fmt.Errorf("error uploading: %s", err)
 					break
@@ -190,7 +190,15 @@ func CheckedUpload(baseUrl string, payload PLoad, dump bool) (string, error) {
 		return key.String(), err
 	}
 	if !key.IsEmpty() {
-		return Get(baseUrl, key, payload)
+		var txt string
+		for i := 0; i < 10; i++ {
+			if txt, err = Get(baseUrl, key, payload); err == nil {
+				return txt, nil
+			}
+			log.Printf("WARN[%d] cannot get %s: %s", i, key, err)
+			time.Sleep(1)
+		}
+		return txt, err
 	}
 	return "", nil
 }
