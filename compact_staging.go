@@ -274,11 +274,8 @@ func harvestSymlinks(path string) (map[string][]fElt, error) {
 				continue
 			}
 			bn := fi.Name()
-			linkpath = path + "/" + bn
-			origin = FindLinkOrigin(linkpath)
-			if !filepath.IsAbs(origin) {
-				origin = path + "/" + origin
-			}
+			linkpath = filepath.Join(path, bn)
+			origin = FindLinkOrigin(linkpath, true)
 			logger.Tracef("bn=%s origin=%s", bn, origin)
 			if !(strings.HasSuffix(bn, SuffLink) && origin != linkpath &&
 				fileExists(origin)) {
@@ -341,7 +338,7 @@ func appendLink(tw *tar.Writer, tfh io.Seeker, fn string) (pos1 uint64, pos2 uin
 	hdr, err := FileTarHeader(fn)
 	hdr.Size = 0
 	hdr.Typeflag = tar.TypeSymlink
-	hdr.Linkname = BaseName(FindLinkOrigin(fn))
+	hdr.Linkname = BaseName(FindLinkOrigin(fn, false))
 	// logger.Printf("fn=%s hdr=%+v tm=%s", fn, hdr, hdr.Typeflag)
 	if err != nil {
 		return

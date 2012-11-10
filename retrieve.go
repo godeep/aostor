@@ -357,7 +357,7 @@ func GetFromCdb(uuid UUID, cdb_fn string) (info Info, reader io.Reader, err erro
 		err = NotFound
 		return
 	}
-	ocdb := FindLinkOrigin(cdb_fn)
+	ocdb := FindLinkOrigin(cdb_fn, true)
 	//logger.Printf("cdb_fn=%s == %s", cdb_fn, ocdb)
 	tarfn := ocdb[:len(ocdb)-4]
 	reader, err = ReadItem(tarfn, int64(info.Dpos))
@@ -410,7 +410,9 @@ func findAtLevelZero(realm string, uuid UUID) (info Info, reader io.Reader, err 
 }
 
 func findAtStaging(uuid UUID, path string) (info Info, reader io.Reader, err error) {
-	ifh, err := os.Open(path + "/" + uuid.String() + SuffInfo)
+	uuid_s := uuid.String()
+	ifn := filepath.Join(path, uuid_s[:2], uuid_s+SuffInfo)
+	ifh, err := os.Open(ifn)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			logger.Error("findAtStaging(", uuid, ") other error: ", err)
@@ -418,7 +420,7 @@ func findAtStaging(uuid UUID, path string) (info Info, reader io.Reader, err err
 		}
 		return
 	}
-	logger.Debug("L-1 found ", uuid, " at ", path, " as ", ifh)
+	logger.Debug("L-1 found ", uuid_s, " at ", path, " as ", ifh)
 	info, err = ReadInfo(ifh)
 	ifh.Close()
 	if err != nil {
@@ -430,15 +432,11 @@ func findAtStaging(uuid UUID, path string) (info Info, reader io.Reader, err err
 	var fn string
 	ce := info.Get("Content-Encoding")
 	for _, suffix := range suffixes {
-		fn = path + "/" + uuid.String() + suffix
+		fn = ifn[:len(ifn)-len(SuffInfo)] + suffix
 		if fileExists(fn) {
 			if suffix == SuffLink {
-				fn = FindLinkOrigin(fn)
-				if !filepath.IsAbs(fn) {
-					fn = path + "/" + fn
-				}
-				// suffix = fn[strings.LastIndex(fn, "#"):]
-				ifn := fn[:len(fn)-1] + "!"
+				fn = FindLinkOrigin(fn, true)
+				ifn := fn[:len(fn)-len(SuffData)] + SuffInfo
 				ifh_o, err := os.Open(ifn)
 				if err != nil {
 					logger.Errorf("findAtStaging(%s) symlink %s: %s",
@@ -482,14 +480,21 @@ var suffopeners = []suffOpener{
 			return gzip.NewReader(r)
 		}},
 	suffOpener{SuffLink, nil},
-	suffOpener{SuffData, nil}}
+	suffOpener{SuffData,
+		func(r io.Reader) (io.Reader, error) {
+			return r, nil
+		}}}
 
 type suffOpener struct {
 	suffix string
 	open   func(io.Reader) (io.Reader, error)
 }
 
-func FindLinkOrigin(fn string) string {
+func FindLinkOrigin(fn string, abs bool) string {
+	var dn string
+	if abs {
+		dn, _ = filepath.Abs(filepath.Clean(filepath.Dir(fn)))
+	}
 	for {
 		fi, err := os.Lstat(fn)
 		if err != nil {
@@ -504,6 +509,9 @@ func FindLinkOrigin(fn string) string {
 			logger.Error("error following link of %s: %s", fn, err)
 			break
 		}
+	}
+	if abs && !filepath.IsAbs(fn) {
+		fn = filepath.Clean(filepath.Join(dn, fn))
 	}
 	return fn
 }

@@ -26,6 +26,7 @@ import (
 	"fmt"
 	//"bitbucket.org/taruti/mimemagic"
 	"io"
+	"path/filepath"
 	// "io/ioutil"
 	// "./compressor"
 	"github.com/tgulacsi/aostor/compressor"
@@ -50,17 +51,29 @@ func Put(realm string, info Info, data io.Reader) (key UUID, err error) {
 		return
 	}
 
-	if info.Key.IsEmpty() || fileExists(conf.StagingDir+"/"+key.String()+SuffInfo) {
+	if info.Key.IsEmpty() {
+		info.Key, err = NewUUID()
+		if err != nil {
+			logger.Critical("empty key! %s", err)
+			return
+		}
+	}
+	key = info.Key
+	key_s := key.String()
+	ifn := filepath.Join(conf.StagingDir, key_s[:2], key_s+SuffInfo)
+	if fileExists(ifn) {
 		info.Key, err = NewUUID()
 		if err != nil {
 			return
 		}
+		key = info.Key
+		key_s = key.String()
+		ifn = filepath.Join(conf.StagingDir, key_s[:2], key_s+SuffInfo)
 	}
-	if info.Key.IsEmpty() {
-		logger.Critical("empty key!")
+	dn := filepath.Dir(ifn)
+	if err = os.MkdirAll(dn, 0755); err != nil {
 		return
 	}
-	key = info.Key
 	info.Ipos, info.Dpos = 0, 0
 	if StoreCompressMethod != "" {
 		info.Add("Content-Encoding", StoreCompressMethod)
@@ -68,8 +81,8 @@ func Put(realm string, info Info, data io.Reader) (key UUID, err error) {
 
 	// end := compressor.ShorterMethod(StoreCompressMethod)
 	// dfh, err := os.OpenFile(conf.StagingDir+"/"+key+SuffData+end,
-	dfh, err := os.OpenFile(conf.StagingDir+"/"+key.String()+SuffData,
-		os.O_WRONLY|os.O_CREATE, 0640)
+	dfn := ifn[:len(ifn)-len(SuffInfo)] + SuffData
+	dfh, err := os.OpenFile(dfn, os.O_WRONLY|os.O_CREATE, 0640)
 	if err != nil {
 		return
 	}
@@ -95,7 +108,7 @@ func Put(realm string, info Info, data io.Reader) (key UUID, err error) {
 	info.Add(InfoPref+"Content-"+conf.ContentHash,
 		fmt.Sprintf("%x", hsh.Sum(nil)))
 
-	ifh, err := os.OpenFile(conf.StagingDir+"/"+key.String()+SuffInfo, os.O_WRONLY|os.O_CREATE, 0640)
+	ifh, err := os.OpenFile(ifn, os.O_WRONLY|os.O_CREATE, 0640)
 	if err != nil {
 		return
 	}
