@@ -89,12 +89,12 @@ func Compact(realm string, onChange NotifyFunc) error {
 		}
 		tarfn := realm + "-" + strNow()[:15] + "-" + uuid.String() + ".tar"
 		logger.Info("creating ", tarfn)
-		if err = CreateTar(conf.TarDir+"/"+tarfn, conf.StagingDir, conf.TarThreshold, true); err != nil {
+		tarfn_a := filepath.Join(conf.TarDir, tarfn)
+		if err = CreateTar(tarfn_a, conf.StagingDir, conf.TarThreshold, true); err != nil {
 			return err
 		}
-		tarfn_a := conf.TarDir + "/" + tarfn
 		if err = os.Symlink(tarfn_a+".cdb",
-			conf.IndexDir+"/L00/"+tarfn+".cdb"); err != nil {
+			filepath.Join(conf.IndexDir, "L00", tarfn+".cdb")); err != nil {
 			return err
 		}
 		if err = cleanupStaging(conf.StagingDir, tarfn_a); err != nil {
@@ -133,17 +133,22 @@ func CreateTar(tarfn string, dirname string, sizeLimit uint64, alreadyLocked boo
 		}
 	}
 
-	tw, fh, pos, err := OpenForAppend(tarfn)
-	//fh, err := os.OpenFile(tarfn, os.O_APPEND|os.O_CREATE, 0640)
+	links := make(map[string]uint64, 32)
+	buf := make([]fElt, 0, 8)
+	symlinks, err := harvestSymlinks(dirname)
 	if err != nil {
+		logger.Error("cannot read symlinks beforehand: ", err)
 		return err
 	}
-	defer fh.Close()
-	//tw := tar.NewWriter(fh)
-	defer tw.Close()
+	logger.Info("symlinks=", symlinks)
+	if len(symlinks) == 0 {
+		logger.Critical("no symlinks?")
+		os.Exit(5)
+	}
 
 	cfh, err := os.OpenFile(tarfn+".cdb", os.O_WRONLY|os.O_CREATE, 0644)
 	if err != nil {
+		logger.Errorf("cannot open %s.cdb: %s", tarfn, err)
 		return err
 	}
 	defer cfh.Close()
@@ -152,20 +157,17 @@ func CreateTar(tarfn string, dirname string, sizeLimit uint64, alreadyLocked boo
 		logger.Criticalf("cannot create factory: %s", err)
 		return err
 	}
-	links := make(map[string]uint64, 32)
-	buf := make([]fElt, 0, 8)
-	symlinks, err := harvestSymlinks(dirname)
+
+	tw, fh, pos, err := OpenForAppend(tarfn)
 	if err != nil {
-		logger.Error("cannot read symlinks beforehand: ", err)
+		logger.Error("cannot open %s for append: %s", tarfn, err)
 		return err
 	}
-	// logger.Info("symlinks=", symlinks)
-	// if len(symlinks) == 0 {
-	// 	os.Exit(5)
-	// }
+	defer fh.Close()
+	defer tw.Close()
 
 	var hamster listDirFunc = func(elt fElt) error {
-		// logger.Printf("fn=%s -> key=%s ?%s", fn, key, isInfo)
+		logger.Debugf("elt=%s", elt)
 		if elt.isSymlink {
 			return nil
 		}
@@ -210,6 +212,8 @@ func CreateTar(tarfn string, dirname string, sizeLimit uint64, alreadyLocked boo
 		}
 		return nil
 	}
+	debug2 = true
+	logger.Info("calling listDirMap on ", dirname)
 	err = listDirMap(dirname, "", hamster)
 	if err != nil {
 		logger.Criticalf("error listing %s: %s", dirname, err)
@@ -257,55 +261,57 @@ func harvestSymlinks(path string) (map[string][]fElt, error) {
 	defer dh.Close()
 	links := make(map[string][]fElt, 1024)
 	var (
-		linkpath, origin string
-		elt              fElt
-		ifh              io.ReadCloser
+		origin string
+		elt    fElt
+		ifh    io.ReadCloser
 	)
-	for {
-		files, err := dh.Readdir(1024)
+	var harvester filepath.WalkFunc = func(path string, fi os.FileInfo, err error) error {
 		if err != nil {
 			if err != io.EOF {
 				logger.Errorf("cannot list dir %s: %s", path, err)
 			}
-			break
+			return StopIteration
 		}
-		for _, fi := range files {
-			if fi.Mode()&os.ModeSymlink == 0 {
-				continue
-			}
-			bn := fi.Name()
-			linkpath = filepath.Join(path, bn)
-			origin = FindLinkOrigin(linkpath, true)
-			logger.Tracef("bn=%s origin=%s", bn, origin)
-			if !(strings.HasSuffix(bn, SuffLink) && origin != linkpath &&
-				fileExists(origin)) {
-				continue
-			}
-			bn = bn[:len(bn)-1]
-			elt = fElt{infoFn: path + "/" + bn + SuffInfo,
-				dataFn: linkpath, isSymlink: true, dataFnOrig: origin}
-			if ifh, err = os.Open(elt.infoFn); err != nil {
-				logger.Errorf("cannot open info file %s: %s", elt.infoFn, err)
-				return nil, err
-			}
-			elt.info, err = ReadInfo(ifh)
-			ifh.Close()
-			if err != nil {
-				logger.Errorf("cannot read info from %s: %s", ifh, err)
-				return nil, err
-			}
+		if fi.Mode()&os.ModeSymlink == 0 {
+			return nil
+		}
+		bn := fi.Name()
+		origin = FindLinkOrigin(path, true)
+		logger.Debugf("bn=%s linkpath=%s origin=%s", bn, path, origin)
+		if !(strings.HasSuffix(bn, SuffLink) && origin != path &&
+			fileExists(origin)) {
+			logger.Warn("link ", path, " -> ", origin, " not exists!")
+			return nil
+		}
+		elt = fElt{infoFn: path[:len(path)-len(SuffLink)] + SuffInfo,
+			dataFn: path, isSymlink: true, dataFnOrig: origin}
+		if ifh, err = os.Open(elt.infoFn); err != nil {
+			logger.Errorf("cannot open info file %s: %s", elt.infoFn, err)
+			return err
+		}
+		elt.info, err = ReadInfo(ifh)
+		ifh.Close()
+		if err != nil {
+			logger.Errorf("cannot read info from %s: %s", ifh, err)
+			return err
+		}
 
-			if arr, ok := links[elt.dataFnOrig]; !ok || arr == nil {
-				links[elt.dataFnOrig] = make([]fElt, 0, 4)
-			}
-			links[elt.dataFnOrig] = append(links[elt.dataFnOrig], elt)
+		if arr, ok := links[elt.dataFnOrig]; !ok || arr == nil {
+			links[elt.dataFnOrig] = make([]fElt, 0, 4)
 		}
+		links[elt.dataFnOrig] = append(links[elt.dataFnOrig], elt)
+		return nil
+	}
+
+	if err = Walk(path, harvester); err != nil {
+		return nil, err
 	}
 	return links, nil
 }
 
 // appends file to tar
 func appendFile(tw *tar.Writer, tfh io.Seeker, fn string) (pos1 uint64, pos2 uint64, err error) {
+	logger.Debugf("adding %s (%s) to %s", tfh, fn, tw)
 	hdr, err := FileTarHeader(fn)
 	if err != nil {
 		return
@@ -335,6 +341,7 @@ func appendLink(tw *tar.Writer, tfh io.Seeker, fn string) (pos1 uint64, pos2 uin
 	if !fileIsSymlink(fn) {
 		return appendFile(tw, tfh, fn)
 	}
+	logger.Debugf("adding link %s (%s) to %s", tfh, fn, tw)
 	hdr, err := FileTarHeader(fn)
 	hdr.Size = 0
 	hdr.Typeflag = tar.TypeSymlink
@@ -372,7 +379,8 @@ func cleanupStaging(path string, tarfn string) error {
 			logger.Errorf("cannot convert %s to uuid: %s", elt.Key, err)
 			return err
 		}
-		base := path + "/" + uuid.String()
+		uuid_s := uuid.String()
+		base := filepath.Join(path, uuid_s[:2], uuid_s)
 		// logger.Debugf("base %s exists? %s", base, fileExists(base+SuffInfo))
 		if fileExists(base + SuffInfo) {
 			for _, end := range endings {

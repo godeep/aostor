@@ -164,7 +164,7 @@ func fillCdbCache(realm string, indexdir string, force bool) error {
 }
 
 func walkCdbFiles(realm, indexdir string, todo func(level int, fn string) error) error {
-	pat := indexdir + "/L00/*.cdb"
+	pat := filepath.Join(indexdir, "L00", "*.cdb")
 	files, err := filepath.Glob(pat)
 	if err != nil {
 		logger.Error("cannot list %s: %s", pat, err)
@@ -177,13 +177,13 @@ func walkCdbFiles(realm, indexdir string, todo func(level int, fn string) error)
 	}
 
 	for level := 1; level < 1000; level++ {
-		dn := indexdir + fmt.Sprintf("/L%02d", level)
+		dn := filepath.Join(indexdir, fmt.Sprintf("L%02d", level))
 		// logger.Printf("dn: %s", dn)
 		if !fileExists(dn) {
 			// logger.Printf("%s not exists", dn)
 			break
 		}
-		pat = dn + "/*.cdb"
+		pat = filepath.Join(dn, "*.cdb")
 		files, err = filepath.Glob(pat)
 		if err != nil {
 			logger.Error("cannot list %s: %s", pat, err)

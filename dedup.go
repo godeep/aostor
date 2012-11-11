@@ -44,7 +44,9 @@ func DeDup(path string, hash string, alreadyLocked bool) int {
 	//contentHash -> already existing symlinks' original target
 	primals := make(map[string]string, 16)
 	var hamster listDirFunc = func(elt fElt) error {
-		logger.Debugf("%s sl? %s lo=%s", elt.contentHash, elt.isSymlink, FindLinkOrigin(elt.dataFn, false))
+		if debug2 {
+			logger.Debugf("%s sl? %s lo=%s", elt.contentHash, elt.isSymlink, FindLinkOrigin(elt.dataFn, false))
+		}
 		if elt.contentHash == "" {
 			return nil
 		}
@@ -178,7 +180,12 @@ type fElt struct {
 
 type listDirFunc func(fElt) error
 
+var debug2 bool = false
+
 func listDirMap(path string, hash string, hamster listDirFunc) error {
+	if debug2 {
+		logger.Debug("listDirMap " + path)
+	}
 	possibleEndings := []string{SuffData, SuffLink}
 	var (
 		info, emptyInfo Info
@@ -191,10 +198,18 @@ func listDirMap(path string, hash string, hamster listDirFunc) error {
 	var err error
 
 	var pedestrian filepath.WalkFunc = func(path string, fi os.FileInfo, err error) error {
+		if debug2 {
+			logger.Debug("pedestrian " + path + " " + fi.Name())
+		}
 		if fi.IsDir() {
+			if debug2 {
+				logger.Debugf("skipping dir %s", fi.Name())
+			}
 			return nil
 		}
-		logger.Tracef("path=%s fi=%+v", path, fi)
+		if debug2 {
+			logger.Debugf("path=%s fi=%s", path, fi.Name())
+		}
 		bn := fi.Name()
 		if !strings.HasSuffix(bn, SuffInfo) {
 			logger.Trace("skip ", bn)
@@ -247,6 +262,9 @@ func listDirMap(path string, hash string, hamster listDirFunc) error {
 				return nil
 			}
 		}
+		if debug2 {
+			logger.Debugf("elt=%s", elt)
+		}
 		elt.info = info
 		if hash != "" {
 			elt.contentHash = info.Get(InfoPref + "Content-" + hash)
@@ -254,7 +272,7 @@ func listDirMap(path string, hash string, hamster listDirFunc) error {
 		if elt.isSymlink {
 			elt.dataFnOrig = FindLinkOrigin(elt.dataFn, true)
 			if !filepath.IsAbs(elt.dataFnOrig) {
-				elt.dataFnOrig = filepath.Clean(path + "/" + elt.dataFnOrig)
+				elt.dataFnOrig = filepath.Clean(filepath.Join(path, elt.dataFnOrig))
 			}
 			buf = append(buf, elt)
 		} else {
@@ -270,7 +288,9 @@ func listDirMap(path string, hash string, hamster listDirFunc) error {
 		return nil
 	}
 
+	logger.Infof("calling Walk(%s)", path)
 	if err = Walk(path, pedestrian); err != nil {
+		logger.Errorf("error walking %s: %s", path, err)
 		return err
 	}
 
@@ -288,6 +308,7 @@ func listDirMap(path string, hash string, hamster listDirFunc) error {
 }
 
 func walk(path string, info os.FileInfo, walkFn filepath.WalkFunc) error {
+	// logger.Tracef("walk(%s, %s)", path, info.Name())
 	err := walkFn(path, info, nil)
 	if err != nil {
 		if err == StopIteration {

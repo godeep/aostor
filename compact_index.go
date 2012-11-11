@@ -54,7 +54,7 @@ func CompactIndices(realm string, level uint, onChange func(), alreadyLocked boo
 	}
 
 	var n int
-	for level < 100 && fileExists(conf.IndexDir+"/"+fmt.Sprintf("L%02d")) {
+	for level < 100 && fileExists(filepath.Join(conf.IndexDir, fmt.Sprintf("L%02d"))) {
 		n, err = compactLevel(level, conf.IndexDir, conf.IndexThreshold)
 		if err != nil {
 			logger.Errorf("compactLevel(%s, %s, %s): %s", level, conf.IndexDir, conf.IndexThreshold, err)
@@ -76,8 +76,8 @@ func strNow() string {
 
 func compactLevel(level uint, index_dir string, threshold uint) (int, error) {
 	num := 0
-	path := index_dir + "/" + fmt.Sprintf("L%02d", level)
-	files_a, err := filepath.Glob(path + "/*.cdb")
+	path := filepath.Join(index_dir, fmt.Sprintf("L%02d", level))
+	files_a, err := filepath.Glob(filepath.Join(path, "*.cdb"))
 	if err != nil {
 		logger.Errorf("cannot list files in %s: %s", path, err)
 		return 0, err
@@ -97,7 +97,7 @@ func compactLevel(level uint, index_dir string, threshold uint) (int, error) {
 		return 0, nil
 	}
 	sort.Sort(bySizeReversed{files})
-	dest_dir := index_dir + "/" + fmt.Sprintf("L%02d", level+1)
+	dest_dir := filepath.Join(index_dir, fmt.Sprintf("L%02d", level+1))
 	lskip := uint(0)
 	for lskip < length {
 		fbuf := make([]string, threshold)
@@ -134,7 +134,7 @@ func compactLevel(level uint, index_dir string, threshold uint) (int, error) {
 			logger.Criticalf("cannot generate uuid: %s", err)
 			return 0, err
 		}
-		dest_cdb_fn := dest_dir + "/" + strNow()[:15] + "-" + uuid.String() + ".cdb"
+		dest_cdb_fn := filepath.Join(dest_dir, strNow()[:15]+"-"+uuid.String()+".cdb")
 		err = mergeCdbs(dest_cdb_fn, fbuf, level, threshold, true)
 		if err != nil {
 			logger.Errorf("mergeCdbs(%s, %s, %s, %s, %s): %s", dest_cdb_fn, fbuf, level, threshold, true, err)

@@ -142,7 +142,7 @@ func readConf(fn string, realm string, common Config) (c Config, err error) {
 	}
 	if realm != "" {
 		for i := 0; i < 2; i++ {
-			dn := c.IndexDir + "/" + fmt.Sprintf("L%02d", i)
+			dn := filepath.Join(c.IndexDir, fmt.Sprintf("L%02d", i))
 			if !fileExists(dn) {
 				if err = os.MkdirAll(dn, 0755); err != nil {
 					return c, err

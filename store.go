@@ -80,7 +80,6 @@ func Put(realm string, info Info, data io.Reader) (key UUID, err error) {
 	}
 
 	// end := compressor.ShorterMethod(StoreCompressMethod)
-	// dfh, err := os.OpenFile(conf.StagingDir+"/"+key+SuffData+end,
 	dfn := ifn[:len(ifn)-len(SuffInfo)] + SuffData
 	dfh, err := os.OpenFile(dfn, os.O_WRONLY|os.O_CREATE, 0640)
 	if err != nil {
