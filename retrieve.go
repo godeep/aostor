@@ -226,11 +226,11 @@ func fillTarCache(realm string, tardir string, force bool) error {
 }
 
 func walkTarFiles(realm, tardir string, todo func(uuid, fn string) error) error {
-	err := filepath.Walk(tardir,
+	err := Walk(tardir,
 		func(fn string, info os.FileInfo, err error) error {
 			if err != nil {
 				if info.IsDir() {
-					return filepath.SkipDir
+					return nil
 				} else {
 					return nil
 				}
