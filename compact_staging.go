@@ -33,7 +33,7 @@ import (
 
 type NotifyFunc func()
 
-var stopIteration = errors.New("StopIteration")
+var StopIteration = errors.New("StopIteration")
 var AlreadyLocked = errors.New("AlreadyLocked")
 
 // compacts staging dir: moves info and data files to tar; calls CompactIndices
@@ -66,7 +66,7 @@ func Compact(realm string, onChange NotifyFunc) error {
 		size += BS + inBs(is) + BS + inBs(ds)
 		logger.Tracef("size=%d = %0.3fMb", size, float64(size)/1024.0/1024.0)
 		if size >= conf.TarThreshold {
-			return stopIteration
+			return StopIteration
 		}
 		return nil
 	}
@@ -206,7 +206,7 @@ func CreateTar(tarfn string, dirname string, sizeLimit uint64, alreadyLocked boo
 		}
 		// logger.Tracef("buf=%s", buf)
 		if pos > 0 && pos > sizeLimit {
-			return stopIteration
+			return StopIteration
 		}
 		return nil
 	}

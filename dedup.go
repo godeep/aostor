@@ -44,7 +44,7 @@ func DeDup(path string, hash string, alreadyLocked bool) int {
 	//contentHash -> already existing symlinks' original target
 	primals := make(map[string]string, 16)
 	var hamster listDirFunc = func(elt fElt) error {
-		logger.Tracef("%s sl? %s lo=%s", elt.contentHash, elt.isSymlink, FindLinkOrigin(elt.dataFn))
+		logger.Debugf("%s sl? %s lo=%s", elt.contentHash, elt.isSymlink, FindLinkOrigin(elt.dataFn, false))
 		if elt.contentHash == "" {
 			return nil
 		}
@@ -180,101 +180,103 @@ type listDirFunc func(fElt) error
 
 func listDirMap(path string, hash string, hamster listDirFunc) error {
 	possibleEndings := []string{SuffData, SuffLink}
-	dh, err := os.Open(path)
-	if err != nil {
-		logger.Criticalf("cannot open dir %s: %s", path, err)
-		os.Exit(1)
-	}
-	defer dh.Close()
 	var (
 		info, emptyInfo Info
 		elt, emptyElt   fElt
 	)
 	emptyElt.isSymlink = false
 	buf := make([]fElt, 0)
-	for {
-		keyfiles, err := dh.Readdir(1024)
-		if err != nil {
-			if err != io.EOF {
-				logger.Errorf("cannot list dir %s: %s", path, err)
-			}
-			break
-		}
-		infobuf := make([]byte, 8192)
-		var n int
-		for _, fi := range keyfiles {
-			bn := fi.Name()
-			if !strings.HasSuffix(bn, SuffInfo) || !fileExists(path+"/"+bn) {
-				continue
-			}
-			info, elt = emptyInfo, emptyElt
-			elt.infoFn = path + "/" + bn
-			// bn := BaseName(fn)
-			info.Key, err = UUIDFromString(bn[:len(bn)-1])
-			if err != nil {
-				logger.Errorf("cannot treat %s as uuid: %s", bn[:len(bn)-1], err)
-				continue
-			}
-			if ifh, err := os.Open(elt.infoFn); err == nil {
-				if fi, _ := ifh.Stat(); err == nil && fi.Size() <= int64(cap(infobuf)) {
-					if n, err = io.ReadFull(ifh, infobuf[:fi.Size()]); err == nil {
-						info, err = InfoFromBytes(infobuf[:n])
-					}
-				} else {
-					info, err = ReadInfo(ifh)
-				}
-				ifh.Close()
-				if err != nil {
-					logger.Errorf("cannot read info from %s: %s", elt.infoFn, err)
-					continue
-				}
-			} else {
-				logger.Errorf("cannot read info from %s: %s", elt.infoFn, err)
-				continue
-			}
+	infobuf := make([]byte, 8192)
+	var n int
+	var err error
 
-			pref := path + "/" + info.Key.String()
-			if fileExists(pref + SuffLink) {
-				elt.dataFn = pref + SuffLink
-				elt.isSymlink = true
-			} else {
-				for _, end := range possibleEndings {
-					// logger.Printf("checking %s: %s", pref + end, fileExists(pref+end))
-					if fileExists(pref + end) {
-						elt.dataFn = pref + end
-						break
-					}
+	var pedestrian filepath.WalkFunc = func(path string, fi os.FileInfo, err error) error {
+		if fi.IsDir() {
+			return nil
+		}
+		logger.Tracef("path=%s fi=%+v", path, fi)
+		bn := fi.Name()
+		if !strings.HasSuffix(bn, SuffInfo) {
+			logger.Trace("skip ", bn)
+			return nil
+		}
+		if !fileExists(path) {
+			logger.Warn("not exists! ", path)
+			return nil
+		}
+		info, elt = emptyInfo, emptyElt
+		elt.infoFn = path
+		// bn := BaseName(fn)
+		info.Key, err = UUIDFromString(bn[:len(bn)-1])
+		if err != nil {
+			logger.Errorf("cannot treat %s as uuid: %s", bn[:len(bn)-1], err)
+			return nil
+		}
+		if ifh, err := os.Open(elt.infoFn); err == nil {
+			if fi, _ := ifh.Stat(); err == nil && fi.Size() <= int64(cap(infobuf)) {
+				if n, err = io.ReadFull(ifh, infobuf[:fi.Size()]); err == nil {
+					info, err = InfoFromBytes(infobuf[:n])
 				}
-				if elt.dataFn == "" {
-					logger.Warn("cannot find data file for ", elt.infoFn)
-					continue
+			} else {
+				info, err = ReadInfo(ifh)
+			}
+			ifh.Close()
+			if err != nil {
+				logger.Errorf("cannot read info from %s: %s", elt.infoFn, err)
+				return nil
+			}
+		} else {
+			logger.Errorf("cannot read info from %s: %s", elt.infoFn, err)
+			return nil
+		}
+
+		pref := path[:len(path)-len(SuffInfo)]
+		if fileExists(pref + SuffLink) {
+			elt.dataFn = pref + SuffLink
+			elt.isSymlink = true
+		} else {
+			for _, end := range possibleEndings {
+				logger.Tracef("checking %s: %s", pref+end, fileExists(pref+end))
+				if fileExists(pref + end) {
+					elt.dataFn = pref + end
+					break
 				}
 			}
-			elt.info = info
-			if hash != "" {
-				elt.contentHash = info.Get(InfoPref + "Content-" + hash)
+			if elt.dataFn == "" {
+				logger.Warn("cannot find data file for ", elt.infoFn)
+				return nil
 			}
-			if elt.isSymlink {
-				elt.dataFnOrig = FindLinkOrigin(elt.dataFn)
-				if !filepath.IsAbs(elt.dataFnOrig) {
-					elt.dataFnOrig = filepath.Clean(path + "/" + elt.dataFnOrig)
-				}
-				buf = append(buf, elt)
-			} else {
-				if err = hamster(elt); err != nil {
-					if err == stopIteration {
-						break
-					} else {
-						logger.Errorf("error with %s: %s", elt, err)
-						return err
-					}
+		}
+		elt.info = info
+		if hash != "" {
+			elt.contentHash = info.Get(InfoPref + "Content-" + hash)
+		}
+		if elt.isSymlink {
+			elt.dataFnOrig = FindLinkOrigin(elt.dataFn, true)
+			if !filepath.IsAbs(elt.dataFnOrig) {
+				elt.dataFnOrig = filepath.Clean(path + "/" + elt.dataFnOrig)
+			}
+			buf = append(buf, elt)
+		} else {
+			if err = hamster(elt); err != nil {
+				if err == StopIteration {
+					return StopIteration
+				} else {
+					logger.Errorf("error with %s: %s", elt, err)
+					return err
 				}
 			}
 		}
+		return nil
 	}
+
+	if err = Walk(path, pedestrian); err != nil {
+		return err
+	}
+
 	for _, elt := range buf {
 		if err = hamster(elt); err != nil {
-			if err == stopIteration {
+			if err == StopIteration {
 				break
 			} else {
 				logger.Errorf("error with %s: %s", elt, err)
@@ -283,4 +285,63 @@ func listDirMap(path string, hash string, hamster listDirFunc) error {
 		}
 	}
 	return nil
+}
+
+func walk(path string, info os.FileInfo, walkFn filepath.WalkFunc) error {
+	err := walkFn(path, info, nil)
+	if err != nil {
+		if err == StopIteration {
+			return nil
+		}
+		if info.IsDir() && err == filepath.SkipDir {
+			return nil
+		}
+		return err
+	}
+
+	if !info.IsDir() {
+		return nil
+	}
+
+	dh, err := os.Open(path)
+	if err != nil {
+		return walkFn(path, info, err)
+	}
+	defer dh.Close()
+	for {
+		list, err := dh.Readdir(1024)
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return walkFn(path, info, err)
+		}
+
+		for _, fileInfo := range list {
+			err = walk(filepath.Join(path, fileInfo.Name()), fileInfo, walkFn)
+			if err != nil {
+				if err == StopIteration {
+					return nil
+				}
+				if !fileInfo.IsDir() || err != filepath.SkipDir {
+					return err
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// Walk walks the file tree rooted at root, calling walkFn for each file or
+// directory in the tree, including root. All errors that arise visiting files
+// and directories are filtered by walkFn. The files are walked in inode
+// order, which makes the output indeterministic but means that even for very
+// large directories Walk can be efficient.
+func Walk(root string, walkFn filepath.WalkFunc) error {
+	info, err := os.Lstat(root)
+	if err != nil {
+		return walkFn(root, nil, err)
+	}
+	return walk(root, info, walkFn)
 }

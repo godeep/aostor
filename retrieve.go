@@ -35,8 +35,7 @@ import (
 )
 
 var (
-	NotFound      = errors.New("Not Found")
-	StopIteration = errors.New("StopIteration")
+	NotFound = errors.New("Not Found")
 )
 
 var (
