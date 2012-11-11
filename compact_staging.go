@@ -87,9 +87,14 @@ func Compact(realm string, onChange NotifyFunc) error {
 		if err != nil {
 			return err
 		}
-		tarfn := realm + "-" + strNow()[:15] + "-" + uuid.String() + ".tar"
+		uuid_s := uuid.String()
+		tarfn := realm + "-" + strNow()[:15] + "-" + uuid_s + ".tar"
 		logger.Info("creating ", tarfn)
-		tarfn_a := filepath.Join(conf.TarDir, tarfn)
+		dn := filepath.Join(conf.TarDir, uuid_s[:2])
+		if err = os.MkdirAll(dn, 0755); err != nil {
+			return err
+		}
+		tarfn_a := filepath.Join(dn, tarfn)
 		if err = CreateTar(tarfn_a, conf.StagingDir, conf.TarThreshold, true); err != nil {
 			return err
 		}
@@ -140,7 +145,7 @@ func CreateTar(tarfn string, dirname string, sizeLimit uint64, alreadyLocked boo
 		logger.Error("cannot read symlinks beforehand: ", err)
 		return err
 	}
-	logger.Info("symlinks=", symlinks)
+	// logger.Info("symlinks=", symlinks)
 	if len(symlinks) == 0 {
 		logger.Critical("no symlinks?")
 		os.Exit(5)
@@ -167,7 +172,9 @@ func CreateTar(tarfn string, dirname string, sizeLimit uint64, alreadyLocked boo
 	defer tw.Close()
 
 	var hamster listDirFunc = func(elt fElt) error {
-		logger.Debugf("elt=%s", elt)
+		if debug2 {
+			logger.Debugf("elt=%s", elt)
+		}
 		if elt.isSymlink {
 			return nil
 		}
@@ -188,11 +195,17 @@ func CreateTar(tarfn string, dirname string, sizeLimit uint64, alreadyLocked boo
 
 			for _, sym := range symlinks[elt.dataFn] {
 				linkpos, ok := links[sym.dataFnOrig]
-				logger.Debugf("adding %s (symlink of %s) linkpos? %s",
+				logger.Tracef("adding %s (symlink of %s) linkpos? %s",
 					sym.info.Key, elt.dataFn, ok)
 				if !ok {
 					buf = append(buf, sym)
 					return nil
+				}
+				sym.info.Ipos = pos
+				_, pos, err = appendFile(tw, fh, sym.infoFn)
+				if err != nil {
+					logger.Criticalf("cannot append %s: %s", sym.infoFn, err)
+					os.Exit(1)
 				}
 				sym.info.Dpos = linkpos
 				_, pos, err = appendLink(tw, fh, sym.dataFn)
@@ -212,8 +225,8 @@ func CreateTar(tarfn string, dirname string, sizeLimit uint64, alreadyLocked boo
 		}
 		return nil
 	}
-	debug2 = true
-	logger.Info("calling listDirMap on ", dirname)
+	// debug2 = true
+	logger.Trace("calling listDirMap on ", dirname)
 	err = listDirMap(dirname, "", hamster)
 	if err != nil {
 		logger.Criticalf("error listing %s: %s", dirname, err)
@@ -223,6 +236,12 @@ func CreateTar(tarfn string, dirname string, sizeLimit uint64, alreadyLocked boo
 	// logger.Tracef("buf=%s", buf)
 
 	for _, elt := range buf {
+		elt.info.Ipos = pos
+		_, pos, err = appendFile(tw, fh, elt.infoFn)
+		if err != nil {
+			logger.Criticalf("cannot append %s: %s", elt.infoFn, err)
+			os.Exit(1)
+		}
 		linkpos, ok := links[elt.dataFnOrig]
 		if !ok {
 			logger.Warnf("cannot find linkpos for %s -> %s", elt.dataFn, elt.dataFnOrig)
@@ -311,7 +330,7 @@ func harvestSymlinks(path string) (map[string][]fElt, error) {
 
 // appends file to tar
 func appendFile(tw *tar.Writer, tfh io.Seeker, fn string) (pos1 uint64, pos2 uint64, err error) {
-	logger.Debugf("adding %s (%s) to %s", tfh, fn, tw)
+	logger.Tracef("adding %s (%s) to %s", tfh, fn, tw)
 	hdr, err := FileTarHeader(fn)
 	if err != nil {
 		return
@@ -336,12 +355,11 @@ func appendFile(tw *tar.Writer, tfh io.Seeker, fn string) (pos1 uint64, pos2 uin
 	return
 }
 
-// FIXME
 func appendLink(tw *tar.Writer, tfh io.Seeker, fn string) (pos1 uint64, pos2 uint64, err error) {
 	if !fileIsSymlink(fn) {
 		return appendFile(tw, tfh, fn)
 	}
-	logger.Debugf("adding link %s (%s) to %s", tfh, fn, tw)
+	logger.Tracef("adding link %s (%s) to %s", tfh, fn, tw)
 	hdr, err := FileTarHeader(fn)
 	hdr.Size = 0
 	hdr.Typeflag = tar.TypeSymlink

@@ -288,7 +288,7 @@ func listDirMap(path string, hash string, hamster listDirFunc) error {
 		return nil
 	}
 
-	logger.Infof("calling Walk(%s)", path)
+	logger.Tracef("calling Walk(%s)", path)
 	if err = Walk(path, pedestrian); err != nil {
 		logger.Errorf("error walking %s: %s", path, err)
 		return err
