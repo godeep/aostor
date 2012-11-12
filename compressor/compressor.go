@@ -62,7 +62,10 @@ func RandString(length int) string {
 // CompressCopy copies from reader to writer, compressing in between using
 // the given compressMethod
 func CompressCopy(w io.Writer, r io.Reader, compressMethod string) (int64, error) {
-	if compressMethod == "gzip" || compressMethod == "gz" {
+	switch compressMethod {
+	case "":
+		return io.Copy(w, r)
+	case "gzip", "gz":
 		gw, err := gzip.NewWriterLevel(w, flate.BestCompression)
 		if err != nil {
 			return 0, err
@@ -70,10 +73,10 @@ func CompressCopy(w io.Writer, r io.Reader, compressMethod string) (int64, error
 		defer gw.Close()
 		// logger.Printf("CompressCopy copying from %s to %s", r, gw)
 		return io.Copy(gw, r)
-	} else {
-		if compressMethod == "bz2" {
-			compressMethod = "bzip2"
-		}
+	case "bzip2", "bz2":
+		compressMethod = "bzip2"
+		fallthrough
+	default:
 		if _, ok := compressorRegistry[compressMethod]; !ok {
 			errors.New("unknown compress method " + compressMethod)
 		}

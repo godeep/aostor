@@ -34,9 +34,6 @@ import (
 	"os"
 )
 
-// var StoreCompressMethod = "bzip2"
-var StoreCompressMethod = "gzip"
-
 var UUIDMaker = uuid.NewRandom
 
 const (
@@ -78,8 +75,8 @@ func Put(realm string, info Info, data io.Reader) (key UUID, err error) {
 		return
 	}
 	info.Ipos, info.Dpos = 0, 0
-	if StoreCompressMethod != "" {
-		info.Add("Content-Encoding", StoreCompressMethod)
+	if conf.CompressMethod != "" {
+		info.Add("Content-Encoding", conf.CompressMethod)
 	}
 
 	// end := compressor.ShorterMethod(StoreCompressMethod)
@@ -91,7 +88,7 @@ func Put(realm string, info Info, data io.Reader) (key UUID, err error) {
 	hsh := conf.ContentHashFunc()
 	cnt := NewCounter()
 	r := io.TeeReader(data, io.MultiWriter(hsh, cnt))
-	n, err := compressor.CompressCopy(dfh, r, StoreCompressMethod)
+	n, err := compressor.CompressCopy(dfh, r, conf.CompressMethod)
 	dfh.Close()
 	dfh.Sync()
 

@@ -38,6 +38,7 @@ const (
 	DefaultTarThreshold   = 1000 * (1 << 20) // 1000Mb
 	DefaultIndexThreshold = 10               // How many index cdb should be merged
 	DefaultContentHash    = "sha1"
+	DefaultCompressMethod = "gzip"
 	DefaultHostport       = ":8341"
 	DefaultLogConfFile    = "seelog.xml"
 	TestConfig            = `[dirs]
@@ -78,6 +79,7 @@ type Config struct {
 	ContentHash                  string
 	ContentHashFunc              func() hash.Hash
 	LogConf                      string
+	CompressMethod               string
 }
 
 // reads config file (or ConfigFile if empty), replaces every #(realm)s with the
@@ -225,6 +227,17 @@ func readConf(fn string, realm string, common Config) (c Config, err error) {
 	default:
 		c.ContentHashFunc = sha1.New
 		c.ContentHash = "sha1"
+	}
+
+	c.CompressMethod = DefaultCompressMethod
+	if common.CompressMethod != "" {
+		c.CompressMethod = common.CompressMethod
+	} else {
+		c.CompressMethod, err = conf.String("compress", "method")
+		if err != nil {
+			logger.Warn("cannot get compress method: ", err)
+			err = nil
+		}
 	}
 
 	return c, err
