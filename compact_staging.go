@@ -147,8 +147,7 @@ func CreateTar(tarfn string, dirname string, sizeLimit uint64, alreadyLocked boo
 	}
 	// logger.Info("symlinks=", symlinks)
 	if len(symlinks) == 0 {
-		logger.Critical("no symlinks?")
-		os.Exit(5)
+		logger.Warn("no symlinks?")
 	}
 
 	cfh, err := os.OpenFile(tarfn+".cdb", os.O_WRONLY|os.O_CREATE, 0644)

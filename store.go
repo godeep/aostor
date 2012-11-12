@@ -21,6 +21,7 @@ package aostor
 
 import (
 	"code.google.com/p/go-uuid/uuid"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -38,7 +39,11 @@ var StoreCompressMethod = "gzip"
 
 var UUIDMaker = uuid.NewRandom
 
-const UUIDLength = 16
+const (
+	UUIDLength          = 16
+	UUIDLengthB64       = 23
+	UUIDLengthB64Padded = 25
+)
 
 // puts file (info + data) into the given realm - returns the key
 // if the key is in info, then uses that
@@ -132,9 +137,20 @@ func NewUUID() (UUID, error) {
 }
 
 func UUIDFromString(text string) (b UUID, err error) {
-	u, e := hex.DecodeString(text)
-	if e != nil {
-		err = e
+	var u []byte
+	switch len(text) {
+	case 2 * UUIDLengthB64Padded:
+		u, err = hex.DecodeString(text)
+	case 22:
+		u, err = base64.URLEncoding.DecodeString(text + "==")
+	case 23:
+		u, err = base64.URLEncoding.DecodeString(text + "=")
+	case 24:
+		u, err = base64.URLEncoding.DecodeString(text)
+	default:
+		err = fmt.Errorf("Invalid length %d of %s", len(text), text)
+	}
+	if err != nil {
 		return
 	}
 	for i := 0; i < UUIDLength && i < len(u); i++ {
@@ -143,7 +159,8 @@ func UUIDFromString(text string) (b UUID, err error) {
 	return
 }
 func UUIDFromBytes(text []byte) (b UUID, err error) {
-	if len(text) == 2*UUIDLength {
+	switch len(text) {
+	case 2 * UUIDLength, 22, 23, 24:
 		return UUIDFromString(string(text))
 	}
 	for i := 0; i < UUIDLength && i < len(text); i++ {
@@ -153,7 +170,8 @@ func UUIDFromBytes(text []byte) (b UUID, err error) {
 }
 
 func (b UUID) String() string {
-	return hex.EncodeToString(b[0:])
+	// return hex.EncodeToString(b[0:])
+	return base64.URLEncoding.EncodeToString(b[0:])[:22] //strip padding ==
 }
 func (b UUID) Bytes() []byte {
 	return b[0:]
