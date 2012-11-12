@@ -40,9 +40,7 @@ var StoreCompressMethod = "gzip"
 var UUIDMaker = uuid.NewRandom
 
 const (
-	UUIDLength          = 16
-	UUIDLengthB64       = 23
-	UUIDLengthB64Padded = 25
+	UUIDLength = 16
 )
 
 // puts file (info + data) into the given realm - returns the key
@@ -138,15 +136,12 @@ func NewUUID() (UUID, error) {
 
 func UUIDFromString(text string) (b UUID, err error) {
 	var u []byte
-	switch len(text) {
-	case 2 * UUIDLengthB64Padded:
+	switch n := len(text); n {
+	case 2 * UUIDLength:
 		u, err = hex.DecodeString(text)
-	case 22:
-		u, err = base64.URLEncoding.DecodeString(text + "==")
-	case 23:
-		u, err = base64.URLEncoding.DecodeString(text + "=")
-	case 24:
-		u, err = base64.URLEncoding.DecodeString(text)
+	case 22, 23, 24:
+		// logger.Debugf("UUIDFromString(%s + %s [%d])", text, "=="[:24-n], len(text))
+		u, err = base64.URLEncoding.DecodeString(text + "=="[:24-n])
 	default:
 		err = fmt.Errorf("Invalid length %d of %s", len(text), text)
 	}
