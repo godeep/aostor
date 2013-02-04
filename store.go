@@ -20,11 +20,11 @@
 package aostor
 
 import (
-	"code.google.com/p/go-uuid/uuid"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/tgulacsi/aostor/uuid"
 	//"bitbucket.org/taruti/mimemagic"
 	"io"
 	"path/filepath"
@@ -34,7 +34,7 @@ import (
 	"os"
 )
 
-var UUIDMaker = uuid.NewRandom
+var UUIDMaker = uuid.NewUUID4
 
 const (
 	UUIDLength = 16

@@ -1,9 +1,9 @@
 package bytrie
 
 import (
-	"code.google.com/p/go-uuid/uuid"
 	"encoding/base64"
 	"fmt"
+	"github.com/tgulacsi/aostor/uuid"
 	"testing"
 )
 
