@@ -21,7 +21,15 @@ Mime-type in Content-Type.
 ### Indexing
 Tar needs an index, to be able retrieve files in random order. For this, each tar gets a .cdb companion (D. J. Bernstein's Constant DataBase).
 
-TODO: one needs to find out in which tar the file is in!
+#### TODO: one needs to find out in which tar the file is in!
+
+A possible solution is that to return the tar's UUID with the key, so retrieval is easy: just use the given UUID!
+The implementation shall support partial tar UUID's (i.e. just some prefix is presented of the tar UUID) - to be able to store the file UUID + the tar UUID in sime limited space.
+
+For this, the UUIDs are encoded as Base64, URL-safe, stripped padding: this results 22 characters as an UUID, so a file UUID + "," separator + full tar UUID consumes 22 + 1 + 22 = 45 characters, a 40 char wide field can store 17 chars of the tar UUID, 32 => 9.
+
+UUID4 = 16 bytes - (2 + 4 bits) randomness = 16 * 8 - 6 bits, that is 122 bits.
+So 9 char means 9/22 ratio of the tars need to be searched only.
 
 ## Appending files
 Files written into a simple directory ("staging"), just as they would be in the tar. If the count/size reaches a threshold, they're shoveled in a tar, accompanied by the .cdb.

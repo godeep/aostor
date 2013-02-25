@@ -209,14 +209,20 @@ func CreateTar(tarfn string, dirname string, sizeLimit uint64, alreadyLocked boo
 				sym.info.Dpos = linkpos
 				_, pos, err = appendLink(tw, fh, sym.dataFn)
 				if err != nil {
-					logger.Criticalf("cannot append %s", sym.dataFn)
+					logger.Criticalf("cannot append %s: %s", sym.dataFn, err)
 					os.Exit(1)
 				}
-				adder(cdb.Element{sym.info.Key.Bytes(), sym.info.Bytes()})
+				if err = adder(cdb.Element{sym.info.Key.Bytes(), sym.info.Bytes()}); err != nil {
+					logger.Criticalf("cannot append %s: %s", sym.info, err)
+					os.Exit(1)
+				}
 			}
 			delete(symlinks, elt.dataFn)
 			// c <- cdb.Element{StrToBytes(elt.info.Key), elt.info.Bytes()}
-			adder(cdb.Element{elt.info.Key.Bytes(), elt.info.Bytes()})
+			if err = adder(cdb.Element{elt.info.Key.Bytes(), elt.info.Bytes()}); err != nil {
+				logger.Criticalf("cannot append %s: %s", elt.info, err)
+				os.Exit(1)
+			}
 		}
 		// logger.Tracef("buf=%s", buf)
 		if pos > 0 && pos > sizeLimit {
@@ -255,7 +261,10 @@ func CreateTar(tarfn string, dirname string, sizeLimit uint64, alreadyLocked boo
 			os.Exit(1)
 		}
 		// logger.Debugf("adding ",keyb," to ",)
-		adder(cdb.Element{elt.info.Key.Bytes(), elt.info.Bytes()})
+		if err = adder(cdb.Element{elt.info.Key.Bytes(), elt.info.Bytes()}); err != nil {
+			logger.Criticalf("error adding %s: %s", elt.info, err)
+			os.Exit(1)
+		}
 	}
 
 	// iw.Close()
@@ -308,7 +317,7 @@ func harvestSymlinks(path string) (map[string][]fElt, error) {
 			return err
 		}
 		elt.info, err = ReadInfo(ifh)
-		ifh.Close()
+		_ = ifh.Close()
 		if err != nil {
 			logger.Errorf("cannot read info from %s: %s", ifh, err)
 			return err
@@ -330,24 +339,28 @@ func harvestSymlinks(path string) (map[string][]fElt, error) {
 // appends file to tar
 func appendFile(tw *tar.Writer, tfh io.Seeker, fn string) (pos1 uint64, pos2 uint64, err error) {
 	logger.Tracef("adding %s (%s) to %s", tfh, fn, tw)
-	hdr, err := FileTarHeader(fn)
-	if err != nil {
+	hdr, e := FileTarHeader(fn)
+	if e != nil {
+		err = e
 		return
 	}
-	sfh, err := os.Open(fn)
-	if err != nil {
+	sfh, e := os.Open(fn)
+	if e != nil {
+		err = e
 		return
 	}
 	defer sfh.Close()
-	p, err := tfh.Seek(0, 1)
-	if err != nil {
+	p, e := tfh.Seek(0, 1)
+	if e != nil {
+		err = e
 		return
 	}
 	pos1 = uint64(p)
-	WriteTar(tw, hdr, sfh)
-	tw.Flush()
-	p, err = tfh.Seek(0, 1)
-	if err != nil {
+	if err = WriteTar(tw, hdr, sfh); err != nil {
+		return
+	}
+	_ = tw.Flush()
+	if p, err = tfh.Seek(0, 1); err != nil {
 		return
 	}
 	pos2 = uint64(p)
@@ -359,23 +372,26 @@ func appendLink(tw *tar.Writer, tfh io.Seeker, fn string) (pos1 uint64, pos2 uin
 		return appendFile(tw, tfh, fn)
 	}
 	logger.Tracef("adding link %s (%s) to %s", tfh, fn, tw)
-	hdr, err := FileTarHeader(fn)
+	hdr, e := FileTarHeader(fn)
 	hdr.Size = 0
 	hdr.Typeflag = tar.TypeSymlink
 	hdr.Linkname = BaseName(FindLinkOrigin(fn, false))
 	// logger.Printf("fn=%s hdr=%+v tm=%s", fn, hdr, hdr.Typeflag)
-	if err != nil {
+	if e != nil {
+		err = e
 		return
 	}
-	p, err := tfh.Seek(0, 1)
-	if err != nil {
+	p, e := tfh.Seek(0, 1)
+	if e != nil {
+		err = e
 		return
 	}
 	pos1 = uint64(p)
-	WriteTar(tw, hdr, nil)
-	tw.Flush()
-	p, err = tfh.Seek(0, 1)
-	if err != nil {
+	if err = WriteTar(tw, hdr, nil); err != nil {
+		return
+	}
+	_ = tw.Flush()
+	if p, err = tfh.Seek(0, 1); err != nil {
 		return
 	}
 	pos2 = uint64(p)

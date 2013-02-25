@@ -71,7 +71,7 @@ func ReadItem(tarfn string, pos int64) (ret io.Reader, err error) {
 		logger.Errorf("cannot open %s: %s", tarfn, err)
 	}
 	c := new(closer)
-	c.AddClose(func() { f.Close() }) //defer f.Close()
+	c.AddClose(func() { _ = f.Close() }) //defer f.Close()
 
 	p, err := f.Seek(pos, 0)
 	if err != nil {
@@ -366,7 +366,7 @@ func WriteTar(tw *tar.Writer, hdr *tar.Header, r io.Reader) (err error) {
 		logger.Criticalf("error copying tar data %+v into %+v: %s", r, tw, err)
 		return
 	}
-	tw.Flush()
+	err = tw.Flush()
 	return
 }
 
@@ -456,7 +456,7 @@ func AppendLink(tarfn string, info Info, src string, dst string) (err error) {
 			hdr.Typeflag = tar.TypeSymlink
 			hdr.Linkname = dst
 			if err := tw.WriteHeader(hdr); err == nil {
-				tw.Flush()
+				err = tw.Flush()
 			}
 		}
 	}

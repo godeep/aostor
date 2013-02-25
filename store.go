@@ -36,10 +36,6 @@ import (
 
 var UUIDMaker = uuid.NewUUID4
 
-const (
-	UUIDLength = 16
-)
-
 // puts file (info + data) into the given realm - returns the key
 // if the key is in info, then uses that
 func Put(realm string, info Info, data io.Reader) (key UUID, err error) {
@@ -89,8 +85,8 @@ func Put(realm string, info Info, data io.Reader) (key UUID, err error) {
 	cnt := NewCounter()
 	r := io.TeeReader(data, io.MultiWriter(hsh, cnt))
 	n, err := compressor.CompressCopy(dfh, r, conf.CompressMethod)
-	dfh.Close()
-	dfh.Sync()
+	_ = dfh.Close()
+	_ = dfh.Sync()
 
 	fs := fileSize(dfh.Name())
 	if fs <= 0 {
@@ -112,20 +108,20 @@ func Put(realm string, info Info, data io.Reader) (key UUID, err error) {
 		return
 	}
 	_, err = ifh.Write(info.Bytes())
-	ifh.Close()
+	_ = ifh.Close()
 	if err != nil {
 		return
 	}
 	return
 }
 
-type UUID [UUIDLength]byte
+type UUID [uuid.Length]byte
 
-// returns a hexified UUIDLength-byte UUID1
+// returns a hexified uuid.Length-byte UUID1
 func NewUUID() (UUID, error) {
 	var b UUID
 	u := UUIDMaker()
-	for i := 0; i < UUIDLength; i++ {
+	for i := 0; i < uuid.Length; i++ {
 		b[i] = u[i]
 	}
 	return b, nil
@@ -134,7 +130,7 @@ func NewUUID() (UUID, error) {
 func UUIDFromString(text string) (b UUID, err error) {
 	var u []byte
 	switch n := len(text); n {
-	case 2 * UUIDLength:
+	case 2 * uuid.Length:
 		u, err = hex.DecodeString(text)
 	case 22, 23, 24:
 		// logger.Debugf("UUIDFromString(%s + %s [%d])", text, "=="[:24-n], len(text))
@@ -145,17 +141,17 @@ func UUIDFromString(text string) (b UUID, err error) {
 	if err != nil {
 		return
 	}
-	for i := 0; i < UUIDLength && i < len(u); i++ {
+	for i := 0; i < uuid.Length && i < len(u); i++ {
 		b[i] = u[i]
 	}
 	return
 }
 func UUIDFromBytes(text []byte) (b UUID, err error) {
 	switch len(text) {
-	case 2 * UUIDLength, 22, 23, 24:
+	case 2 * uuid.Length, 22, 23, 24:
 		return UUIDFromString(string(text))
 	}
-	for i := 0; i < UUIDLength && i < len(text); i++ {
+	for i := 0; i < uuid.Length && i < len(text); i++ {
 		b[i] = text[i]
 	}
 	return
@@ -169,7 +165,7 @@ func (b UUID) Bytes() []byte {
 	return b[0:]
 }
 func (b UUID) IsEmpty() bool {
-	for i := 0; i < UUIDLength; i++ {
+	for i := 0; i < uuid.Length; i++ {
 		if b[i] != 0 {
 			return false
 		}

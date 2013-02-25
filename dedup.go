@@ -235,7 +235,7 @@ func listDirMap(path string, hash string, hamster listDirFunc) error {
 			} else {
 				info, err = ReadInfo(ifh)
 			}
-			ifh.Close()
+			_ = ifh.Close()
 			if err != nil {
 				logger.Errorf("cannot read info from %s: %s", elt.infoFn, err)
 				return nil

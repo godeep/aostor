@@ -256,7 +256,7 @@ func mergeCdbs(dest_cdb_fn string, source_cdb_files []string, level uint, thresh
 				}
 			}
 		}
-		sfh.Close()
+		_ = sfh.Close()
 		if move {
 			tbd = append(tbd, sfn)
 		}
@@ -264,7 +264,7 @@ func mergeCdbs(dest_cdb_fn string, source_cdb_files []string, level uint, thresh
 			lengths[sfn] = n
 		}
 	}
-	cw.Close()
+	_ = cw.Close()
 	if !fileExists(dest_cdb_fn) {
 		return errors.New("cdb " + dest_cdb_fn + " not exists!")
 	}

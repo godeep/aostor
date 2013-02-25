@@ -181,7 +181,7 @@ func InfoFromBytes(b []byte) (info Info, err error) {
 func (info *Info) NewReader() (io.Reader, int) {
 	buf := make([]string, len(info.m)+3)
 	i := 0
-	info.Prepare()
+	_ = info.Prepare()
 
 	//length := 0
 	for k, v := range info.m {

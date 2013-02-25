@@ -284,7 +284,7 @@ func findAtLevelHigher(realm string, uuid UUID) (info Info, reader io.Reader, er
 			switch err {
 			case nil:
 				data, err := db.Data(indx)
-				db.Close()
+				_ = db.Close()
 				if err != nil {
 					logger.Error("cannot get ", indx, " from ", cdb_fn, ": ", err)
 					return info, nil, err
@@ -292,13 +292,13 @@ func findAtLevelHigher(realm string, uuid UUID) (info Info, reader io.Reader, er
 				tarfn_b = BytesToStr(data)
 				break
 			case io.EOF:
-				db.Close()
+				_ = db.Close()
 				continue
 			default:
-				db.Close()
+				_ = db.Close()
 				return info, nil, err
 			}
-			db.Close()
+			_ = db.Close()
 			logger.Debug("searching ", uuid, ": ", tarfn_b, " ", err)
 		}
 	}
@@ -374,7 +374,7 @@ func GetFromCdb(uuid UUID, cdb_fn string) (info Info, reader io.Reader, err erro
 func fileExists(fn string) bool {
 	fh, err := os.Open(fn)
 	if err == nil {
-		fh.Close()
+		_ = fh.Close()
 		return true
 	} else {
 		return !os.IsNotExist(err)
@@ -422,7 +422,7 @@ func findAtStaging(uuid UUID, path string) (info Info, reader io.Reader, err err
 	}
 	logger.Debug("L-1 found ", uuid_s, " at ", path, " as ", ifh)
 	info, err = ReadInfo(ifh)
-	ifh.Close()
+	_ = ifh.Close()
 	if err != nil {
 		logger.Error("cannot read info file ", ifh, ": ", err)
 		return
@@ -444,7 +444,7 @@ func findAtStaging(uuid UUID, path string) (info Info, reader io.Reader, err err
 					return info, nil, err
 				}
 				info_o, err := ReadInfo(ifh_o)
-				ifh_o.Close()
+				_ = ifh_o.Close()
 				if err != nil {
 					logger.Error("cannot read symlink info ", ifh_o, ": ", err)
 					return info, nil, err

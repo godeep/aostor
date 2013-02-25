@@ -251,10 +251,10 @@ func getDir(conf *config.Config, section string, option string, realm string) (s
 	if realm != "" {
 		path = strings.Replace(path, "#(realm)s", realm, -1)
 		if !fileExists(path) {
-			os.MkdirAll(path, 0755)
+			err = os.MkdirAll(path, 0755)
 		}
 	}
-	return path, nil
+	return path, err
 }
 
 func fileMode(fn string) os.FileMode {
